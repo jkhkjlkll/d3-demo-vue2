@@ -1,5 +1,5 @@
 <template>
-  <div class="ops-root">
+  <div class="ops-root light">
     <div class="header">
       <div class="logo">
         <div class="logo-icon">OG</div>
@@ -20,8 +20,7 @@
       <div class="tb-group">
         <div class="tb-label">项目</div>
         <el-select v-model="filters.project" size="mini" popper-class="ops-select-popper" class="ops-select">
-          <el-option label="P001 · 电商平台" value="P001"></el-option>
-          <el-option label="P002 · 金融平台" value="P002"></el-option>
+          <el-option v-for="item in projectOptions" :key="item.value" :label="item.label" :value="item.value"></el-option>
         </el-select>
       </div>
       <div class="tb-group">
@@ -105,7 +104,7 @@
           <div class="legend-sep"></div>
           <div class="legend-title">关系类型</div>
           <div class="legend-row" v-for="item in relationTypes" :key="item.key">
-            <span class="legend-swatch" style="background: var(--r-access)"></span>
+            <span class="legend-swatch" :style="{ background: relationColor(item.key) }"></span>
             <span class="legend-label">{{ item.label }}</span>
           </div>
         </div>
@@ -202,6 +201,10 @@ export default {
         warnCount: 4,
         errorCount: 5
       },
+      projectOptions: [
+        { label: 'P001 · 电商平台', value: 'P001' },
+        { label: 'P002 · 金融平台', value: 'P002' }
+      ],
       entityTypes: [
         { key: 'user', label: '用户', color: '#4db8ff', count: 1 },
         { key: 'domain', label: '域名上下文', color: '#00e5ff', count: 2 },
@@ -219,6 +222,13 @@ export default {
         { key: 'host', label: '承载' },
         { key: 'monitor', label: '监控' }
       ],
+      relationColors: {
+        access: '#4db8ff',
+        call: '#00d68f',
+        lb: '#9d6fff',
+        host: '#7fa8cc',
+        monitor: '#ff4040'
+      },
       graphData: {
         nodes: [
           { id: 'user', label: '用户', type: 'user', health: '正常', x: 180, y: 360 },
@@ -256,13 +266,13 @@ export default {
   },
   computed: {
     selectedTypeColor() {
-      if (!this.selectedNode) return 'var(--c-domain)'
+      if (!this.selectedNode) return this.relationColors.access
       return this.colorByType(this.selectedNode.type)
     }
   },
   mounted() {
     this.updateTime()
-    this.renderGraph()
+    this.loadAllData()
     window.addEventListener('resize', this.renderGraph)
     this._timeTimer = setInterval(this.updateTime, 1000)
   },
@@ -276,6 +286,55 @@ export default {
       const pad = (n) => String(n).padStart(2, '0')
       this.nowTime = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
     },
+
+    // ===== Data loaders (placeholders for backend integration) =====
+    async loadAllData() {
+      await Promise.all([
+        this.fetchProjects(),
+        this.fetchEntityTypes(),
+        this.fetchRelationTypes(),
+        this.fetchStats(),
+        this.fetchGraphData(),
+        this.fetchDetailData()
+      ])
+      this.$nextTick(() => this.renderGraph())
+    },
+    async fetchProjects() {
+      // TODO: backend returns {status:'', data:{datas:[]}}
+      // const res = await fetch('/api/projects')
+      // const payload = await res.json()
+      const payload = { status: 'ok', data: { datas: this.projectOptions } }
+      const list = (payload && payload.data && payload.data.datas) || []
+      this.projectOptions = list
+      if (list[0] && !this.filters.project) this.filters.project = list[0].value
+    },
+    async fetchEntityTypes() {
+      // TODO: backend returns {status:'', data:[]}
+      // const res = await fetch('/api/entity-types')
+      // const payload = await res.json()
+      const payload = { status: 'ok', data: this.entityTypes }
+      this.entityTypes = payload.data || []
+    },
+    async fetchRelationTypes() {
+      // TODO: backend structure TBD
+      const payload = { status: 'ok', data: this.relationTypes }
+      this.relationTypes = payload.data || []
+    },
+    async fetchStats() {
+      // TODO: backend structure TBD
+      const payload = { status: 'ok', data: this.stats }
+      this.stats = payload.data || this.stats
+    },
+    async fetchGraphData() {
+      // TODO: backend structure TBD
+      const payload = { status: 'ok', data: this.graphData }
+      this.graphData = payload.data || this.graphData
+    },
+    async fetchDetailData() {
+      // TODO: backend structure TBD
+      return Promise.resolve()
+    },
+
     toggleAgg() {
       this.aggMode = !this.aggMode
       this.renderGraph()
@@ -298,6 +357,10 @@ export default {
         d3.select(this.$refs.graphSvg).transition().duration(200).call(this._zoom.transform, d3.zoomIdentity)
       }
     },
+    relationColor(key) {
+      return this.relationColors[key] || '#4db8ff'
+    },
+
     getGraphViewData() {
       if (!this.aggMode) {
         return { nodes: this.graphData.nodes, links: this.graphData.links }
@@ -385,15 +448,15 @@ export default {
         .filter((l) => l.source && l.target)
 
       const edgeG = root.append('g')
-      edgeG
+      const linkPaths = edgeG
         .selectAll('path')
         .data(d3Links)
         .enter()
         .append('path')
         .attr('class', 'edge-path')
-        .attr('stroke', 'var(--r-access)')
+        .attr('stroke', (d) => this.relationColor(d.type))
         .attr('stroke-width', 1.2)
-        .attr('stroke-opacity', 0.55)
+        .attr('stroke-opacity', 0.6)
         .attr('fill', 'none')
         .attr('d', (d) => `M${d.source.x},${d.source.y} L${d.target.x},${d.target.y}`)
 
@@ -408,15 +471,27 @@ export default {
         .on('click', (event, d) => this.openDetail(d))
         .on('mousemove', (event, d) => this.showTooltip(event, d, d3Links))
         .on('mouseleave', () => this.hideTooltip())
+        .call(
+          d3
+            .drag()
+            .on('drag', (event, d) => {
+              d.x = event.x
+              d.y = event.y
+              d3.select(event.sourceEvent.target.closest('g'))
+                .attr('transform', `translate(${d.x - d.w / 2}, ${d.y - d.h / 2})`)
+              linkPaths.attr('d', (l) => `M${l.source.x},${l.source.y} L${l.target.x},${l.target.y}`)
+              this.renderMinimap(d3Nodes, d3Links, width, height)
+            })
+        )
 
       node
         .append('rect')
         .attr('class', 'node-body')
         .attr('width', (d) => d.w)
         .attr('height', (d) => d.h)
-        .attr('fill', '#0f1e33')
+        .attr('fill', '#ffffff')
         .attr('stroke', (d) => this.colorByType(d.type))
-        .attr('stroke-width', 1.3)
+        .attr('stroke-width', 1.4)
 
       node
         .append('rect')
@@ -428,7 +503,7 @@ export default {
         .append('text')
         .attr('x', 10)
         .attr('y', 24)
-        .attr('fill', '#cce4ff')
+        .attr('fill', '#2d3a4a')
         .attr('font-size', 11)
         .attr('font-weight', 600)
         .attr('font-family', 'Noto Sans SC, sans-serif')
@@ -481,7 +556,7 @@ export default {
         .attr('y1', (d) => mapY(d.source.y))
         .attr('x2', (d) => mapX(d.target.x))
         .attr('y2', (d) => mapY(d.target.y))
-        .attr('stroke', 'rgba(77,184,255,0.4)')
+        .attr('stroke', 'rgba(77,184,255,0.5)')
         .attr('stroke-width', 0.8)
 
       svg
@@ -522,8 +597,8 @@ export default {
         .attr('y', rectY)
         .attr('width', Math.min(rectW, width))
         .attr('height', Math.min(rectH, height))
-        .attr('fill', 'rgba(26,159,255,0.12)')
-        .attr('stroke', 'rgba(77,184,255,0.7)')
+        .attr('fill', 'rgba(26,159,255,0.15)')
+        .attr('stroke', 'rgba(77,184,255,0.8)')
         .attr('stroke-width', 0.8)
     },
     openDetail(node) {
@@ -570,46 +645,31 @@ export default {
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@300;400;500;700&display=swap');
 
 :root {
-  --bg: #060b14;
-  --bg1: #091120;
-  --bg2: #0c1628;
-  --panel: #0f1e33;
-  --panel2: #152540;
-  --panel3: #1a2d4a;
-  --border: #1e3554;
-  --border2: #234065;
-  --border3: #2a4d78;
-  --accent: #1a9fff;
-  --accent2: #4db8ff;
-  --accent3: #80d0ff;
-  --green: #00d68f;
-  --green2: #00ff9d;
-  --yellow: #ffcc00;
-  --yellow2: #ffe033;
-  --red: #ff4040;
-  --red2: #ff6666;
-  --purple: #9d6fff;
+  --bg: #f4f7fb;
+  --bg1: #ffffff;
+  --bg2: #f1f4f9;
+  --panel: #ffffff;
+  --panel2: #f6f8fc;
+  --panel3: #eef3fb;
+  --border: #dbe4f2;
+  --border2: #cdd8ea;
+  --border3: #b9c9e1;
+  --accent: #1a7bf2;
+  --accent2: #2f8bff;
+  --accent3: #6ab2ff;
+  --green: #00b37a;
+  --green2: #00d68f;
+  --yellow: #f0b429;
+  --yellow2: #ffd166;
+  --red: #f05252;
+  --red2: #ff6b6b;
+  --purple: #8b6cff;
   --orange: #ff8c33;
-  --cyan: #00e5ff;
-  --text: #cce4ff;
-  --text2: #7fa8cc;
-  --text3: #4a6e8a;
-  --text4: #2d4a60;
-
-  --c-user: #4db8ff;
-  --c-svc: #00d68f;
-  --c-db: #ffcc00;
-  --c-mw: #9d6fff;
-  --c-api: #ff8c33;
-  --c-compute: #7fa8cc;
-  --c-alert: #ff4040;
-  --c-domain: #00e5ff;
-
-  --r-access: #4db8ff;
-  --r-call: #00d68f;
-  --r-lb: #9d6fff;
-  --r-host: #7fa8cc;
-  --r-monitor: #ff4040;
+  --cyan: #00bcd4;
+  --text: #23334d;
+  --text2: #5d6b86;
+  --text3: #8b97ad;
+  --text4: #aab5c7;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -676,10 +736,10 @@ body {
   align-items: center;
   gap: 6px;
 }
-.badge-blue { background: rgba(26,159,255,0.12); color: var(--accent2); border: 1px solid rgba(26,159,255,0.25); }
-.badge-green { background: rgba(0,214,143,0.12); color: var(--green); border: 1px solid rgba(0,214,143,0.25); }
-.badge-yellow { background: rgba(255,204,0,0.12); color: var(--yellow); border: 1px solid rgba(255,204,0,0.25); }
-.badge-red { background: rgba(255,64,64,0.12); color: var(--red); border: 1px solid rgba(255,64,64,0.25); }
+.badge-blue { background: rgba(47,139,255,0.1); color: var(--accent); border: 1px solid rgba(47,139,255,0.2); }
+.badge-green { background: rgba(0,179,122,0.1); color: var(--green); border: 1px solid rgba(0,179,122,0.2); }
+.badge-yellow { background: rgba(240,180,41,0.12); color: var(--yellow); border: 1px solid rgba(240,180,41,0.25); }
+.badge-red { background: rgba(240,82,82,0.12); color: var(--red); border: 1px solid rgba(240,82,82,0.25); }
 .pulse-dot {
   width: 6px; height: 6px; border-radius: 50%; background: var(--green);
   box-shadow: 0 0 6px var(--green);
@@ -727,8 +787,8 @@ body {
 }
 .btn-default { background: var(--panel); color: var(--text2); }
 .btn-default:hover { background: var(--panel2); color: var(--text); border-color: var(--accent); }
-.btn-primary { background: rgba(26,159,255,0.15); color: var(--accent2); border-color: rgba(26,159,255,0.35); }
-.btn-primary:hover { background: rgba(26,159,255,0.25); }
+.btn-primary { background: rgba(47,139,255,0.15); color: var(--accent); border-color: rgba(47,139,255,0.35); }
+.btn-primary:hover { background: rgba(47,139,255,0.25); }
 
 .main { display: flex; flex: 1; overflow: hidden; position: relative; }
 
@@ -769,7 +829,7 @@ body {
   transition: background 0.12s;
   user-select: none;
 }
-.etype-header:hover { background: var(--panel); }
+.etype-header:hover { background: var(--panel2); }
 .etype-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
 .etype-name { font-size: 12px; flex: 1; }
 .etype-num { font-size: 10px; font-family: 'IBM Plex Mono'; color: var(--text3); }
@@ -786,18 +846,18 @@ body {
   position: absolute;
   inset: 0;
   background-image:
-    radial-gradient(circle 600px at 15% 30%, rgba(26,159,255,0.03) 0%, transparent 70%),
-    radial-gradient(circle 400px at 85% 70%, rgba(157,111,255,0.025) 0%, transparent 70%);
+    radial-gradient(circle 600px at 15% 30%, rgba(47,139,255,0.05) 0%, transparent 70%),
+    radial-gradient(circle 400px at 85% 70%, rgba(139,108,255,0.05) 0%, transparent 70%);
   pointer-events: none;
 }
 .canvas-wrap::after {
   content: '';
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(circle, rgba(30,53,84,0.8) 1px, transparent 1px);
+  background-image: radial-gradient(circle, rgba(210,222,240,0.8) 1px, transparent 1px);
   background-size: 28px 28px;
   pointer-events: none;
-  opacity: 0.4;
+  opacity: 0.5;
 }
 #graph-svg { width: 100%; height: 100%; display: block; }
 
@@ -831,7 +891,7 @@ body {
   left: 260px;
   width: 168px;
   height: 106px;
-  background: rgba(9,17,32,0.9);
+  background: rgba(255,255,255,0.9);
   border: 1px solid var(--border2);
   border-radius: 6px;
   overflow: hidden;
@@ -879,7 +939,7 @@ body {
   position: absolute;
   top: 14px;
   right: 14px;
-  background: rgba(9,17,32,0.88);
+  background: rgba(255,255,255,0.88);
   border: 1px solid var(--border2);
   border-radius: 6px;
   padding: 10px 12px;
@@ -926,14 +986,14 @@ body {
   letter-spacing: 0.08em;
   color: var(--text3);
   font-family: 'IBM Plex Mono';
-  background: rgba(0,0,0,0.15);
+  background: rgba(0,0,0,0.03);
 }
 .detail-row {
   display: flex;
   align-items: flex-start;
   padding: 5px 14px;
   gap: 8px;
-  border-bottom: 1px solid rgba(30,53,84,0.5);
+  border-bottom: 1px solid rgba(30,53,84,0.08);
 }
 .detail-row:last-child { border-bottom: none; }
 .detail-key { font-size: 11px; color: var(--text3); min-width: 80px; flex-shrink: 0; padding-top: 1px; }
@@ -959,13 +1019,13 @@ body {
 
 .node-g { cursor: pointer; }
 .node-body { rx: 5; ry: 5; transition: filter 0.2s; }
-.node-g:hover .node-body { filter: brightness(1.25); }
+.node-g:hover .node-body { filter: brightness(1.05); }
 .edge-path { fill: none; transition: stroke-opacity 0.2s; }
 
 .tooltip-el {
   position: fixed;
-  background: var(--panel2);
-  border: 1px solid var(--border3);
+  background: #ffffff;
+  border: 1px solid var(--border2);
   border-radius: 6px;
   padding: 10px 14px;
   font-size: 11px;
@@ -974,8 +1034,7 @@ body {
   transition: opacity 0.12s;
   z-index: 9999;
   max-width: 240px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(26,159,255,0.08);
-  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 30px rgba(15, 32, 60, 0.12);
 }
 .tooltip-el.visible { opacity: 1; }
 .tt-name { font-weight: 600; color: var(--accent2); margin-bottom: 7px; font-size: 12px; }
@@ -1002,9 +1061,9 @@ body {
   color: var(--text2);
 }
 .el-button.btn.btn-primary {
-  background: rgba(26,159,255,0.15);
-  color: var(--accent2);
-  border-color: rgba(26,159,255,0.35);
+  background: rgba(47,139,255,0.15);
+  color: var(--accent);
+  border-color: rgba(47,139,255,0.35);
 }
 .el-button.btn.btn-default:hover {
   background: var(--panel2);
@@ -1012,6 +1071,6 @@ body {
   border-color: var(--accent);
 }
 
-.ops-select-popper .el-select-dropdown__item { color: #cce4ff; }
-.ops-select-popper { background: var(--panel2); border: 1px solid var(--border2); }
+.ops-select-popper .el-select-dropdown__item { color: var(--text); }
+.ops-select-popper { background: var(--panel); border: 1px solid var(--border2); }
 </style>
