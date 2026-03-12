@@ -85,5 +85,11 @@ pnpm run build
 ## 数据接入位置
 前端数据接入入口：`/Users/xiao/code/d3-demo-vue2/src/App.vue` 的 `fetchGraphData()`。
 
+数据落地变量（`applyData(payload)` 内写入）：
+- `this.graphData`: 图谱节点与连线（`graph.nodes` / `graph.links`）
+- `this.entityTypes`: 实体类型列表（左侧与图例）
+- `this.relationTypes`: 关系类型列表（右侧与图例）
+- `this.stats`: 统计信息（顶部/底部）
+
 ## Customize configuration
 See [Configuration Reference](https://cli.vuejs.org/config/).

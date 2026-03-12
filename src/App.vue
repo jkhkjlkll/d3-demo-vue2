@@ -236,9 +236,26 @@ export default {
 
       const svg = d3.select(svgEl)
       svg.selectAll('*').remove()
-      svg.attr('width', width).attr('height', height).attr('viewBox', `0 0 ${width} ${height}`)
+      const worldWidth = Math.max(width, 2400)
+      const worldHeight = Math.max(height, 1600)
+      const worldX = -(worldWidth - width) / 2
+      const worldY = -(worldHeight - height) / 2
+
+      svg
+        .attr('width', width)
+        .attr('height', height)
+        .attr('viewBox', `${worldX} ${worldY} ${worldWidth} ${worldHeight}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet')
 
       const root = svg.append('g').attr('class', 'graph-root')
+      const zoom = d3
+        .zoom()
+        .scaleExtent([0.2, 4])
+        .on('zoom', (event) => {
+          root.attr('transform', event.transform)
+        })
+
+      svg.call(zoom)
 
       const nodes = this.graphData.nodes.map((node, index) => ({
         ...node,
@@ -433,7 +450,7 @@ body {
 }
 
 .content {
-  height: calc(100vh - 200px);
+  min-height: 0;
 }
 
 .aside {
@@ -513,7 +530,8 @@ body {
 
 .graph-wrap {
   flex: 1;
-  min-height: 420px;
+  min-height: 0;
+  height: 100%;
   border-radius: 10px;
   border: 1px dashed rgba(120, 140, 170, 0.4);
   background: radial-gradient(rgba(35, 64, 108, 0.08) 1px, transparent 1px);
