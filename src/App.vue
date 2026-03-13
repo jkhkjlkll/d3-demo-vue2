@@ -153,6 +153,25 @@
           </div>
         </div>
       </div>
+
+      <div class="chat-sidebar" :class="{ collapsed: chatCollapsed }">
+        <div v-show="!chatCollapsed" class="chat-sidebar-toggle">
+          <div class="chat-sidebar-title">
+            <img class="chat-agent-icon" src="./assets/robot-flat.svg" alt="机器人" />
+            <span>智能客服</span>
+          </div>
+          <div class="chat-collapse-btn" @click="chatCollapsed = true">
+            <i class="el-icon-arrow-right"></i>
+          </div>
+        </div>
+        <div v-show="!chatCollapsed" class="chat-sidebar-body">
+          <chat-dialog ref="opsChat" @send="handleChatSend"></chat-dialog>
+        </div>
+      </div>
+
+      <div v-if="chatCollapsed" class="chat-fab" @click="chatCollapsed = false" title="打开智能客服">
+        <img class="chat-agent-icon" src="./assets/robot-flat.svg" alt="机器人" />
+      </div>
     </div>
 
     <div class="statusbar">
@@ -182,9 +201,13 @@
 
 <script>
 import * as d3 from 'd3'
+import ChatDialog from './components/ChatDialog.vue'
 
 export default {
   name: 'App',
+  components: {
+    ChatDialog
+  },
   data() {
     return {
       filters: {
@@ -195,24 +218,24 @@ export default {
         keyword: ''
       },
       stats: {
-        nodeCount: 8,
-        linkCount: 7,
-        okCount: 10,
-        warnCount: 4,
-        errorCount: 5
+        nodeCount: 26,
+        linkCount: 30,
+        okCount: 17,
+        warnCount: 8,
+        errorCount: 1
       },
       projectOptions: [
         { label: 'P001 · 电商平台', value: 'P001' },
         { label: 'P002 · 金融平台', value: 'P002' }
       ],
       entityTypes: [
-        { key: 'user', label: '用户', color: '#4db8ff', count: 1 },
+        { key: 'user', label: '用户', color: '#4db8ff', count: 2 },
         { key: 'domain', label: '域名上下文', color: '#00e5ff', count: 2 },
-        { key: 'api', label: 'API接口', color: '#ff8c33', count: 3 },
-        { key: 'service', label: '应用微服务', color: '#00d68f', count: 4 },
-        { key: 'db', label: '数据库', color: '#ffcc00', count: 2 },
-        { key: 'middleware', label: '中间件', color: '#9d6fff', count: 2 },
-        { key: 'compute', label: '计算资源', color: '#7fa8cc', count: 3 },
+        { key: 'api', label: 'API接口', color: '#ff8c33', count: 5 },
+        { key: 'service', label: '应用微服务', color: '#00d68f', count: 5 },
+        { key: 'db', label: '数据库', color: '#ffcc00', count: 4 },
+        { key: 'middleware', label: '中间件', color: '#9d6fff', count: 4 },
+        { key: 'compute', label: '计算资源', color: '#7fa8cc', count: 2 },
         { key: 'alarm', label: '告警', color: '#ff4040', count: 2 }
       ],
       relationTypes: [
@@ -231,28 +254,72 @@ export default {
       },
       graphData: {
         nodes: [
-          { id: 'user', label: '用户', type: 'user', health: '正常', x: 180, y: 360 },
-          { id: 'domain', label: '域名上下文', type: 'domain', health: '正常', x: 360, y: 360 },
-          { id: 'api', label: 'API接口', type: 'api', health: '告警', x: 540, y: 360 },
-          { id: 'service', label: '应用微服务', type: 'service', health: '正常', x: 720, y: 360 },
-          { id: 'middleware', label: '中间件', type: 'middleware', health: '正常', x: 900, y: 360 },
-          { id: 'alarm', label: '告警', type: 'alarm', health: '异常', x: 1080, y: 360 },
-          { id: 'db', label: '数据库', type: 'db', health: '告警', x: 840, y: 210 },
-          { id: 'compute', label: '计算资源', type: 'compute', health: '正常', x: 840, y: 520 }
+          { id: 'user-p001', label: '用户入口(P001)', type: 'user', health: '正常', project: 'P001', x: 120, y: 300 },
+          { id: 'domain-p001', label: '域名上下文(P001)', type: 'domain', health: '正常', project: 'P001', x: 300, y: 300 },
+          { id: 'api-gw-p001', label: 'API网关(P001)', type: 'api', health: '正常', project: 'P001', x: 480, y: 220 },
+          { id: 'api-order-p001', label: '订单API(P001)', type: 'api', health: '告警', project: 'P001', x: 480, y: 300 },
+          { id: 'api-pay-p001', label: '支付API(P001)', type: 'api', health: '正常', project: 'P001', x: 480, y: 380 },
+          { id: 'svc-order-p001', label: '订单服务(P001)', type: 'service', health: '告警', project: 'P001', x: 680, y: 250 },
+          { id: 'svc-pay-p001', label: '支付服务(P001)', type: 'service', health: '正常', project: 'P001', x: 680, y: 330 },
+          { id: 'svc-inv-p001', label: '库存服务(P001)', type: 'service', health: '正常', project: 'P001', x: 680, y: 410 },
+          { id: 'mq-p001', label: '消息队列(P001)', type: 'middleware', health: '正常', project: 'P001', x: 870, y: 260 },
+          { id: 'redis-p001', label: 'Redis缓存(P001)', type: 'middleware', health: '告警', project: 'P001', x: 870, y: 340 },
+          { id: 'db-order-p001', label: '订单库(P001)', type: 'db', health: '正常', project: 'P001', x: 1040, y: 250 },
+          { id: 'db-pay-p001', label: '支付库(P001)', type: 'db', health: '告警', project: 'P001', x: 1040, y: 330 },
+          { id: 'k8s-p001', label: 'K8S集群(P001)', type: 'compute', health: '正常', project: 'P001', x: 1040, y: 430 },
+          { id: 'alarm-p001', label: '核心告警(P001)', type: 'alarm', health: '异常', project: 'P001', x: 1220, y: 330 },
+
+          { id: 'user-p002', label: '用户入口(P002)', type: 'user', health: '正常', project: 'P002', x: 120, y: 560 },
+          { id: 'domain-p002', label: '域名上下文(P002)', type: 'domain', health: '正常', project: 'P002', x: 300, y: 560 },
+          { id: 'api-core-p002', label: '核心API(P002)', type: 'api', health: '正常', project: 'P002', x: 480, y: 520 },
+          { id: 'api-risk-p002', label: '风控API(P002)', type: 'api', health: '告警', project: 'P002', x: 480, y: 600 },
+          { id: 'svc-core-p002', label: '核心服务(P002)', type: 'service', health: '正常', project: 'P002', x: 680, y: 520 },
+          { id: 'svc-risk-p002', label: '风控服务(P002)', type: 'service', health: '告警', project: 'P002', x: 680, y: 600 },
+          { id: 'kafka-p002', label: 'Kafka集群(P002)', type: 'middleware', health: '正常', project: 'P002', x: 870, y: 520 },
+          { id: 'es-p002', label: 'ES检索(P002)', type: 'middleware', health: '正常', project: 'P002', x: 870, y: 600 },
+          { id: 'db-core-p002', label: '核心库(P002)', type: 'db', health: '正常', project: 'P002', x: 1040, y: 520 },
+          { id: 'db-risk-p002', label: '风控库(P002)', type: 'db', health: '告警', project: 'P002', x: 1040, y: 600 },
+          { id: 'vm-p002', label: '计算节点(P002)', type: 'compute', health: '正常', project: 'P002', x: 1040, y: 680 },
+          { id: 'alarm-p002', label: '风控告警(P002)', type: 'alarm', health: '告警', project: 'P002', x: 1220, y: 600 }
         ],
         links: [
-          { source: 'user', target: 'domain', type: 'access' },
-          { source: 'domain', target: 'api', type: 'call' },
-          { source: 'api', target: 'service', type: 'call' },
-          { source: 'service', target: 'middleware', type: 'lb' },
-          { source: 'middleware', target: 'alarm', type: 'monitor' },
-          { source: 'service', target: 'db', type: 'host' },
-          { source: 'service', target: 'compute', type: 'host' }
+          { source: 'user-p001', target: 'domain-p001', type: 'access' },
+          { source: 'domain-p001', target: 'api-gw-p001', type: 'call' },
+          { source: 'domain-p001', target: 'api-order-p001', type: 'call' },
+          { source: 'domain-p001', target: 'api-pay-p001', type: 'call' },
+          { source: 'api-gw-p001', target: 'svc-order-p001', type: 'call' },
+          { source: 'api-order-p001', target: 'svc-order-p001', type: 'call' },
+          { source: 'api-pay-p001', target: 'svc-pay-p001', type: 'call' },
+          { source: 'api-order-p001', target: 'svc-inv-p001', type: 'call' },
+          { source: 'svc-order-p001', target: 'mq-p001', type: 'lb' },
+          { source: 'svc-pay-p001', target: 'redis-p001', type: 'lb' },
+          { source: 'svc-inv-p001', target: 'redis-p001', type: 'lb' },
+          { source: 'svc-order-p001', target: 'db-order-p001', type: 'host' },
+          { source: 'svc-pay-p001', target: 'db-pay-p001', type: 'host' },
+          { source: 'svc-inv-p001', target: 'k8s-p001', type: 'host' },
+          { source: 'mq-p001', target: 'alarm-p001', type: 'monitor' },
+          { source: 'redis-p001', target: 'alarm-p001', type: 'monitor' },
+          { source: 'db-pay-p001', target: 'alarm-p001', type: 'monitor' },
+
+          { source: 'user-p002', target: 'domain-p002', type: 'access' },
+          { source: 'domain-p002', target: 'api-core-p002', type: 'call' },
+          { source: 'domain-p002', target: 'api-risk-p002', type: 'call' },
+          { source: 'api-core-p002', target: 'svc-core-p002', type: 'call' },
+          { source: 'api-risk-p002', target: 'svc-risk-p002', type: 'call' },
+          { source: 'svc-core-p002', target: 'kafka-p002', type: 'lb' },
+          { source: 'svc-risk-p002', target: 'es-p002', type: 'lb' },
+          { source: 'svc-core-p002', target: 'db-core-p002', type: 'host' },
+          { source: 'svc-risk-p002', target: 'db-risk-p002', type: 'host' },
+          { source: 'svc-risk-p002', target: 'vm-p002', type: 'host' },
+          { source: 'kafka-p002', target: 'alarm-p002', type: 'monitor' },
+          { source: 'db-risk-p002', target: 'alarm-p002', type: 'monitor' },
+          { source: 'es-p002', target: 'alarm-p002', type: 'monitor' }
         ]
       },
       nowTime: '',
       aggMode: false,
       detailOpen: true,
+      chatCollapsed: false,
       selectedNode: null,
       tooltip: {
         visible: false,
@@ -268,6 +335,14 @@ export default {
     selectedTypeColor() {
       if (!this.selectedNode) return this.relationColors.access
       return this.colorByType(this.selectedNode.type)
+    }
+  },
+  watch: {
+    filters: {
+      deep: true,
+      handler() {
+        this.renderGraph()
+      }
     }
   },
   mounted() {
@@ -334,6 +409,128 @@ export default {
       // TODO: backend structure TBD
       return Promise.resolve()
     },
+    waitMs(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms))
+    },
+    normalizeText(text) {
+      return String(text || '').toLowerCase()
+    },
+    healthToKey(healthText) {
+      if (healthText === '异常') return 'err'
+      if (healthText === '告警') return 'warn'
+      return 'ok'
+    },
+    relationLabel(key) {
+      const hit = this.relationTypes.find((t) => t.key === key)
+      return hit ? hit.label : key
+    },
+    getFilteredGraphData() {
+      const { project, entityType, relationType, health, keyword } = this.filters
+      const kw = this.normalizeText((keyword || '').trim())
+
+      const filteredNodes = this.graphData.nodes.filter((node) => {
+        const nodeProject = node.project || 'P001'
+        const matchProject = !project || project === 'all' || nodeProject === project
+        const matchType = entityType === 'all' || node.type === entityType
+        const matchHealth = health === 'all' || this.healthToKey(node.health) === health
+        const matchKeyword = !kw || this.normalizeText(node.label).includes(kw) || this.normalizeText(node.id).includes(kw)
+        return matchProject && matchType && matchHealth && matchKeyword
+      })
+
+      const nodeIds = new Set(filteredNodes.map((n) => n.id))
+      const filteredLinks = this.graphData.links.filter((link) => {
+        const sourceId = typeof link.source === 'object' ? link.source.id : link.source
+        const targetId = typeof link.target === 'object' ? link.target.id : link.target
+        const matchNodes = nodeIds.has(sourceId) && nodeIds.has(targetId)
+        const matchRelation = relationType === 'all' || link.type === relationType
+        return matchNodes && matchRelation
+      })
+
+      return { nodes: filteredNodes, links: filteredLinks }
+    },
+    getCurrentFilterSummary() {
+      const parts = []
+      const projectLabel = (this.projectOptions.find((p) => p.value === this.filters.project) || {}).label || this.filters.project
+      parts.push(`项目：${projectLabel || '全部'}`)
+      if (this.filters.entityType !== 'all') parts.push(`实体：${this.typeLabel(this.filters.entityType)}`)
+      if (this.filters.relationType !== 'all') parts.push(`关系：${this.relationLabel(this.filters.relationType)}`)
+      if (this.filters.health !== 'all') {
+        const healthMap = { ok: '正常', warn: '告警', err: '异常' }
+        parts.push(`状态：${healthMap[this.filters.health] || this.filters.health}`)
+      }
+      if ((this.filters.keyword || '').trim()) parts.push(`关键词：${this.filters.keyword.trim()}`)
+      return parts.join('，')
+    },
+    applyChatFiltersFromText(text) {
+      const cmd = this.normalizeText(text).replace(/\s+/g, '')
+      const commandMap = [
+        {
+          keys: ['/demo-api', 'demo-api', '看p001api'],
+          patch: { project: 'P001', entityType: 'api', relationType: 'all', health: 'all', keyword: '' }
+        },
+        {
+          keys: ['/demo-db', 'demo-db', '看p001数据库'],
+          patch: { project: 'P001', entityType: 'db', relationType: 'all', health: 'all', keyword: '' }
+        },
+        {
+          keys: ['/demo-p002-api', 'demo-p002-api', '看p002api'],
+          patch: { project: 'P002', entityType: 'api', relationType: 'all', health: 'all', keyword: '' }
+        },
+        {
+          keys: ['/demo-p002-warn', 'demo-p002-warn', '看p002告警'],
+          patch: { project: 'P002', entityType: 'all', relationType: 'all', health: 'warn', keyword: '' }
+        },
+        {
+          keys: ['/demo-warn', 'demo-warn', '只看告警'],
+          patch: { project: 'P001', entityType: 'all', relationType: 'all', health: 'warn', keyword: '' }
+        },
+        {
+          keys: ['/demo-reset', 'demo-reset', '重置筛选'],
+          patch: { project: 'P001', entityType: 'all', relationType: 'all', health: 'all', keyword: '' }
+        }
+      ]
+
+      const hit = commandMap.find((item) => item.keys.includes(cmd))
+      if (!hit) return { applied: false, summary: '' }
+
+      this.filters = { ...this.filters, ...hit.patch }
+      return { applied: true, summary: this.getCurrentFilterSummary() }
+    },
+    async handleChatSend({ text, assistantMessageId }) {
+      const chat = this.$refs.opsChat
+      if (!chat || !assistantMessageId) return
+
+      try {
+        const steps = [
+          '正在分析请求...',
+          '正在匹配固定命令...',
+          '正在联动图谱筛选器...',
+          '正在生成最终回复...'
+        ]
+
+        for (let i = 0; i < steps.length; i += 1) {
+          await this.waitMs(650)
+          const type = i === steps.length - 1 ? 'success' : 'primary'
+          chat.appendAssistantStep(assistantMessageId, steps[i], type)
+        }
+
+        const filterResult = this.applyChatFiltersFromText(text)
+        await this.waitMs(400)
+        if (filterResult.applied) {
+          chat.finishAssistantReply(
+            assistantMessageId,
+            `已按你的指令联动筛选图谱。\n当前条件：${filterResult.summary}\n左侧知识图谱已经同步更新。`
+          )
+        } else {
+          chat.finishAssistantReply(
+            assistantMessageId,
+            `未命中固定命令。当前支持：\n1) /demo-api（看 P001 API）\n2) /demo-db（看 P001 数据库）\n3) /demo-p002-api（看 P002 API）\n4) /demo-warn（看 P001 告警）\n5) /demo-p002-warn（看 P002 告警）\n6) /demo-reset（重置筛选）`
+          )
+        }
+      } catch (error) {
+        chat.failAssistantReply(assistantMessageId, '处理失败，请检查后端服务后重试。')
+      }
+    },
 
     toggleAgg() {
       this.aggMode = !this.aggMode
@@ -362,12 +559,13 @@ export default {
     },
 
     getGraphViewData() {
+      const baseData = this.getFilteredGraphData()
       if (!this.aggMode) {
-        return { nodes: this.graphData.nodes, links: this.graphData.links }
+        return baseData
       }
 
       const typeMap = new Map()
-      this.graphData.nodes.forEach((n) => {
+      baseData.nodes.forEach((n) => {
         const key = n.type
         if (!typeMap.has(key)) {
           typeMap.set(key, { id: `type-${key}`, type: key, label: this.typeLabel(key), count: 0, health: '正常' })
@@ -390,9 +588,10 @@ export default {
       })
 
       const linkCount = new Map()
-      this.graphData.links.forEach((l) => {
-        const sourceType = this.nodeTypeById(l.source)
-        const targetType = this.nodeTypeById(l.target)
+      const nodeMap = new Map(baseData.nodes.map((n) => [n.id, n]))
+      baseData.links.forEach((l) => {
+        const sourceType = (nodeMap.get(l.source) || {}).type
+        const targetType = (nodeMap.get(l.target) || {}).type
         if (!sourceType || !targetType) return
         const key = `${sourceType}|${targetType}`
         linkCount.set(key, (linkCount.get(key) || 0) + 1)
@@ -442,6 +641,19 @@ export default {
 
       const { nodes, links } = this.getGraphViewData()
       const d3Nodes = nodes.map((n) => ({ ...n, w: this.aggMode ? 140 : 120, h: this.aggMode ? 46 : 42 }))
+      if (!d3Nodes.length) {
+        root
+          .append('text')
+          .attr('x', width / 2)
+          .attr('y', height / 2)
+          .attr('text-anchor', 'middle')
+          .attr('fill', '#8b97ad')
+          .attr('font-size', 14)
+          .attr('font-family', 'Noto Sans SC, sans-serif')
+          .text('暂无匹配数据，请调整筛选条件')
+        d3.select(this.$refs.minimapSvg).selectAll('*').remove()
+        return
+      }
       const nodeById = new Map(d3Nodes.map((n) => [n.id, n]))
       const d3Links = links
         .map((l) => ({ ...l, source: nodeById.get(l.source), target: nodeById.get(l.target) }))
@@ -792,6 +1004,105 @@ body {
 
 .main { display: flex; flex: 1; overflow: hidden; position: relative; }
 
+.chat-sidebar {
+  width: 420px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg1);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chat-sidebar.collapsed {
+  width: 0;
+  border-left: none;
+}
+
+.chat-sidebar-toggle {
+  height: 40px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel2);
+  color: var(--text2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.chat-sidebar-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding-left: 10px;
+}
+
+.chat-agent-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-block;
+}
+
+.chat-sidebar-body {
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+}
+
+.chat-sidebar.collapsed .chat-sidebar-toggle {
+  display: none;
+}
+
+.chat-collapse-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text3);
+  margin-right: 8px;
+}
+
+.chat-collapse-btn:hover {
+  background: var(--panel3);
+  color: var(--text);
+}
+
+.chat-fab {
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid #d5e3f7;
+  color: var(--accent2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  box-shadow: 0 10px 20px rgba(23, 46, 89, 0.14);
+  cursor: pointer;
+  z-index: 25;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
+}
+
+.chat-fab .chat-agent-icon {
+  width: 26px;
+  height: 26px;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.12));
+}
+
+.chat-fab:hover {
+  background: #f6f9ff;
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 14px 24px rgba(23, 46, 89, 0.2);
+}
+
 .sidebar {
   width: 250px;
   flex-shrink: 0;
@@ -1073,4 +1384,21 @@ body {
 
 .ops-select-popper .el-select-dropdown__item { color: var(--text); }
 .ops-select-popper { background: var(--panel); border: 1px solid var(--border2); }
+
+@media (max-width: 1360px) {
+  .chat-sidebar {
+    width: 360px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .chat-sidebar {
+    width: 320px;
+  }
+
+  .chat-fab {
+    right: 12px;
+    bottom: 12px;
+  }
+}
 </style>
