@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -213,6 +215,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--prompt", default="", help="Natural-language request used to infer filters")
     parser.add_argument("--output", default="./out/dashboard.html", help="Output HTML file path")
+    parser.add_argument("--open-output", action="store_true", help="Open the generated HTML with the local default app")
     parser.add_argument("--template", default=str(DEFAULT_TEMPLATE), help="HTML template file path")
     parser.add_argument("--mock-file", default=str(DEFAULT_MOCK_FILE), help="Mock data JSON path")
     parser.add_argument("--title", default="Ops Dashboard Skill Demo", help="Dashboard title")
@@ -774,6 +777,19 @@ def render_dashboard(
     output_path.write_text(rendered, encoding="utf-8")
 
 
+def open_output_file(path: Path) -> tuple[bool, str]:
+    try:
+        if sys.platform == "darwin":
+            subprocess.run(["open", str(path)], check=True)
+        elif sys.platform.startswith("win"):
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        else:
+            subprocess.run(["xdg-open", str(path)], check=True)
+        return True, ""
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc)
+
+
 def load_source_data(args: argparse.Namespace) -> Tuple[Dict[str, List[Dict]], BuildContext]:
     if args.api_url:
         try:
@@ -877,15 +893,23 @@ def main() -> int:
     meta_path = output_path.parent / f"{output_path.stem}.meta.json"
     meta_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    opened = False
+    open_error = ""
+    if args.open_output:
+        opened, open_error = open_output_file(output_path)
+
     print(
         json.dumps(
             {
                 "ok": True,
                 "output": str(output_path),
+                "htmlPath": str(output_path),
                 "meta": str(meta_path),
                 "filters": filters,
                 "uiFilters": ui_filters,
                 "summary": summary,
+                "opened": opened,
+                "openError": open_error,
             },
             ensure_ascii=False,
         )

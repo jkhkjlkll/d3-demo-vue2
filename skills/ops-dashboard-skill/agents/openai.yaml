@@ -1,4 +1,4 @@
 interface:
   display_name: "Ops Dashboard Skill"
-  short_description: "Fetch data, infer filters, and render dashboard HTML."
-  default_prompt: "Use $ops-dashboard-skill to fetch backend graph data, infer natural-language filters, and generate a portable HTML dashboard."
+  short_description: "Run the bundled local dashboard script and return the generated HTML path/URL. Do not hand-write HTML."
+  default_prompt: "Use $ops-dashboard-skill by executing `python3 scripts/run_ops_dashboard.py`. You must use the bundled HTML template, must not generate a custom HTML page yourself, and must return the exact htmlPath/url from script output."

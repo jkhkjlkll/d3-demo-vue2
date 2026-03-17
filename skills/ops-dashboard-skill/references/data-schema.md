@@ -132,6 +132,18 @@ pass an alias file such as:
 
 The adapter will resolve the spoken alias to the canonical `appId`/`app_user` before filtering.
 
+## Local output behavior
+
+The dashboard builder can also open the generated file locally:
+- Pass `--open-output` to open the generated HTML with the default local app/browser
+- The script stdout includes `htmlPath`
+- If opening fails, stdout includes `openError` but HTML generation still succeeds
+
+For "generate once, update later" mode, use `scripts/dashboard_session.py`:
+- `start` renders `dashboard.html` once and serves it over a local HTTP URL
+- `update` rewrites `session-control.json` and `session-state.json`
+- page polling can then refresh filters and data without regenerating HTML
+
 ## Filter fields
 
 Inferred filter object:

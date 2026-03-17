@@ -983,7 +983,7 @@ select option { background: var(--panel2); color: var(--text); }
 //  ╚══════════════════════════════════════════════════════════╝
 // ============================================================
 
-const GRAPH_DATA = __GRAPH_DATA_JSON__;
+let GRAPH_DATA = __GRAPH_DATA_JSON__;
 
 
 // ============================================================
@@ -1002,29 +1002,8 @@ const GRAPH_DATA = __GRAPH_DATA_JSON__;
 //    healthStates → 健康状态随机刷新时的权重池（正常概率更高）
 // ============================================================
 
-const APP_CONFIG = __APP_CONFIG_JSON__;
-
-// ── Derived runtime constants — built from APP_CONFIG, do not edit manually ──
-const PROJ_CONFIG   = Object.fromEntries(APP_CONFIG.projects.map(p => [p.id, p]));
-const ETYPE_CONFIG  = APP_CONFIG.entityTypes;
-const RTYPE_CONFIG  = APP_CONFIG.relationTypes;
-const LAYER_ORDER   = APP_CONFIG.entityTypes.map(e => e.type);
-const HEALTH_LIST   = APP_CONFIG.healthStates;
-const ETYPE_MAP     = Object.fromEntries(ETYPE_CONFIG.map(e => [e.type, e.color]));
-const RTYPE_MAP     = Object.fromEntries(RTYPE_CONFIG.map(r => [r.type, r.color]));
-const { nodeWidth: NODE_W, nodeHeight: NODE_H, nodeVGap: NODE_V_GAP,
-        bandMarginV: BAND_MARGIN_V, bandGap: BAND_GAP, canvasTop: CANVAS_TOP,
-        colSpan: COL_SPAN, marginLeft: MARGIN_L,
-        collapseThreshold: COLLAPSE_THRESHOLD = 20,
-        skillCollapseThreshold: SKILL_COLL_THRESH = 10 } = APP_CONFIG.layout;
-const CELL_H = NODE_H + NODE_V_GAP;
-
-// ── Project list — auto-derived from GRAPH_DATA (no manual maintenance needed) ──
-const PROJS = [...new Set(
-  GRAPH_DATA.nodes.map(n => n.project_id).filter(p => p && p !== 'global')
-)].sort();
-
-const SKILL_STATE = __SKILL_STATE_JSON__;
+let APP_CONFIG = __APP_CONFIG_JSON__;
+let SKILL_STATE = __SKILL_STATE_JSON__;
 const DEFAULT_SKILL_FILTERS = {
   project: 'all',
   entityType: 'all',
@@ -1033,8 +1012,84 @@ const DEFAULT_SKILL_FILTERS = {
   keyword: ''
 };
 
+// ── Derived runtime constants — rebuilt whenever live session state changes ──
+let PROJ_CONFIG = {};
+let ETYPE_CONFIG = [];
+let RTYPE_CONFIG = [];
+let LAYER_ORDER = [];
+let HEALTH_LIST = [];
+let ETYPE_MAP = {};
+let RTYPE_MAP = {};
+let NODE_W = 118;
+let NODE_H = 42;
+let NODE_V_GAP = 22;
+let BAND_MARGIN_V = 28;
+let BAND_GAP = 56;
+let CANVAS_TOP = 54;
+let COL_SPAN = 168;
+let MARGIN_L = 90;
+let COLLAPSE_THRESHOLD = 20;
+let SKILL_COLL_THRESH = 10;
+let CELL_H = NODE_H + NODE_V_GAP;
+let PROJS = [];
+let APP_ALIAS_MAP = {};
+let liveSessionError = '';
+let liveSessionBusy = false;
+let liveSessionPollTimer = null;
+let liveSessionVersion = 0;
+let liveSessionDataVersion = 0;
+
+function cloneJson(value){
+  return JSON.parse(JSON.stringify(value || {}));
+}
+
+function normalizeGraphDataShape(value){
+  const graph = value && typeof value === 'object' ? value : {};
+  return {
+    nodes: Array.isArray(graph.nodes) ? graph.nodes : [],
+    relations: Array.isArray(graph.relations) ? graph.relations : []
+  };
+}
+
+function rebuildRuntimeConfig(){
+  const safeGraph = normalizeGraphDataShape(GRAPH_DATA);
+  const safeConfig = APP_CONFIG && typeof APP_CONFIG === 'object' ? APP_CONFIG : {};
+  const safeProjects = Array.isArray(safeConfig.projects) ? safeConfig.projects : [];
+  const safeEntityTypes = Array.isArray(safeConfig.entityTypes) ? safeConfig.entityTypes : [];
+  const safeRelationTypes = Array.isArray(safeConfig.relationTypes) ? safeConfig.relationTypes : [];
+  const layout = safeConfig.layout && typeof safeConfig.layout === 'object' ? safeConfig.layout : {};
+
+  PROJ_CONFIG = Object.fromEntries(safeProjects.map(p => [p.id, p]));
+  ETYPE_CONFIG = safeEntityTypes;
+  RTYPE_CONFIG = safeRelationTypes;
+  LAYER_ORDER = safeEntityTypes.map(e => e.type);
+  HEALTH_LIST = Array.isArray(safeConfig.healthStates) && safeConfig.healthStates.length ? safeConfig.healthStates : ['正常', '告警', '异常'];
+  ETYPE_MAP = Object.fromEntries(ETYPE_CONFIG.map(e => [e.type, e.color]));
+  RTYPE_MAP = Object.fromEntries(RTYPE_CONFIG.map(r => [r.type, r.color]));
+  NODE_W = layout.nodeWidth || 118;
+  NODE_H = layout.nodeHeight || 42;
+  NODE_V_GAP = layout.nodeVGap || 22;
+  BAND_MARGIN_V = layout.bandMarginV || 28;
+  BAND_GAP = layout.bandGap || 56;
+  CANVAS_TOP = layout.canvasTop || 54;
+  COL_SPAN = layout.colSpan || 168;
+  MARGIN_L = layout.marginLeft || 90;
+  COLLAPSE_THRESHOLD = layout.collapseThreshold || 20;
+  SKILL_COLL_THRESH = layout.skillCollapseThreshold || 10;
+  CELL_H = NODE_H + NODE_V_GAP;
+  PROJS = [...new Set(
+    safeGraph.nodes.map(n => n.project_id).filter(p => p && p !== 'global')
+  )].sort();
+  APP_ALIAS_MAP = (SKILL_STATE && SKILL_STATE.appAliases) || {};
+  const liveState = (SKILL_STATE && SKILL_STATE.liveSession) || {};
+  liveSessionVersion = Number(liveState.version || liveSessionVersion || 0);
+  liveSessionDataVersion = Number(liveState.dataVersion || liveSessionDataVersion || 0);
+}
+
+rebuildRuntimeConfig();
+
 // ── 运行时state ─────────────────────────────────────────────────────────────
-let rawData = JSON.parse(JSON.stringify(GRAPH_DATA)); // deep copy; doRefresh() updates this
+let rawData = cloneJson(normalizeGraphDataShape(GRAPH_DATA)); // deep copy; live updates rewrite this
 
 // ── Aggregate mode state ─────────────────────────────────────────────────
 let aggMode      = false;
@@ -3021,6 +3076,15 @@ function doRefresh(){
   const btn = document.getElementById('refresh-btn');
   btn.textContent = '↻ 刷新中…';
   btn.disabled = true;
+
+  if(liveSessionEnabled()){
+    pullLiveSessionState(true)
+      .finally(() => {
+        btn.textContent = '↻ 刷新数据';
+        btn.disabled = false;
+      });
+    return;
+  }
   
   // Simulate API response: mutate some health states
   setTimeout(() => {
@@ -3037,7 +3101,7 @@ function doRefresh(){
     btn.textContent = '↻ 刷新数据';
     btn.disabled = false;
     showNotif('数据已更新', 'ok');
-    document.getElementById('hb-status').textContent = '实时同步';
+    updateSyncBadge('实时同步', 'green');
   }, 700);
 }
 
@@ -3140,34 +3204,32 @@ function showNotif(msg, type='ok'){
 //  POPULATE FILTERS FROM APP_CONFIG
 // ============================================================
 function populateFilters(){
-  // Projects
   const projSel = document.getElementById('proj-select');
-  // Keep the "全部项目" option, append one per project
-  APP_CONFIG.projects.forEach(p => {
+  projSel.innerHTML = '<option value="all" selected>全部项目</option>';
+  (APP_CONFIG.projects || []).forEach(p => {
     const opt = document.createElement('option');
     opt.value = p.id;
     opt.textContent = `${p.id} · ${p.name}`;
     projSel.appendChild(opt);
   });
 
-  // Entity types
   const etypeSel = document.getElementById('etype-filter');
-  APP_CONFIG.entityTypes.forEach(e => {
+  etypeSel.innerHTML = '<option value="all">全部类型</option>';
+  (APP_CONFIG.entityTypes || []).forEach(e => {
     const opt = document.createElement('option');
     opt.value = e.type;
     opt.textContent = e.type;
     etypeSel.appendChild(opt);
   });
 
-  // Relation types
   const rtypeSel = document.getElementById('rtype-filter');
-  APP_CONFIG.relationTypes.forEach(r => {
+  rtypeSel.innerHTML = '<option value="all">全部关系</option>';
+  (APP_CONFIG.relationTypes || []).forEach(r => {
     const opt = document.createElement('option');
     opt.value = r.type;
     opt.textContent = r.type;
     rtypeSel.appendChild(opt);
   });
-  // Cross-project option
   const crossOpt = document.createElement('option');
   crossOpt.value = 'cross';
   crossOpt.textContent = '↔ 跨项目调用';
@@ -4083,7 +4145,187 @@ const HEALTH_ALIAS = {
 };
 
 let skillPromptText = String((SKILL_STATE && SKILL_STATE.prompt) || '');
-const APP_ALIAS_MAP = (SKILL_STATE && SKILL_STATE.appAliases) || {};
+
+function hasMeaningfulBootstrap(filters, prompt){
+  return (
+    filters.project !== 'all' ||
+    filters.entityType !== 'all' ||
+    filters.relationType !== 'all' ||
+    filters.health !== 'all' ||
+    Boolean(filters.keyword) ||
+    Boolean(prompt)
+  );
+}
+
+function pickDefaultProject(){
+  return APP_CONFIG.projects.find(p => PROJS.includes(p.id)) || null;
+}
+
+function updateSyncBadge(text, tone='green'){
+  const badge = document.getElementById('hb-status');
+  if(!badge) return;
+  badge.textContent = text;
+  badge.className = `badge ${tone === 'red' ? 'badge-red' : tone === 'yellow' ? 'badge-yellow' : 'badge-green'}`;
+}
+
+function resetViewStateAfterDatasetChange(){
+  hiddenNodes = new Set();
+  focusedNode = null;
+  ctxTargetNode = null;
+  subgraphNode = null;
+  savedVisNodes = null;
+  savedVisEdges = null;
+  expandedGroups.clear();
+  deployExpandedGroups.clear();
+  dfExpandedGroups.clear();
+  document.getElementById('entity-drawer').classList.remove('open');
+  document.getElementById('breadcrumb-bar').classList.remove('visible');
+  document.getElementById('detail-panel').classList.remove('open');
+}
+
+function syncRuntimeDataset(graphData, appConfig, skillState, promptText){
+  GRAPH_DATA = normalizeGraphDataShape(graphData || GRAPH_DATA);
+  if(appConfig && typeof appConfig === 'object'){
+    APP_CONFIG = appConfig;
+  }
+  if(skillState && typeof skillState === 'object'){
+    SKILL_STATE = skillState;
+  }
+  rebuildRuntimeConfig();
+  rawData = cloneJson(normalizeGraphDataShape(GRAPH_DATA));
+  skillPromptText = String(promptText !== undefined ? promptText : ((SKILL_STATE && SKILL_STATE.prompt) || ''));
+}
+
+function applyDashboardBootstrap(options = {}){
+  const forceAggMode = options.forceAggMode;
+  const notify = options.notify !== false;
+  const toastText = options.toastText || '';
+
+  populateFilters();
+  initSVG();
+
+  const fromState = normalizeSkillFilterPatch((SKILL_STATE && SKILL_STATE.filters) || {});
+  const fromPrompt = inferSkillFiltersFromPrompt(skillPromptText);
+  const bootstrapFilters = { ...DEFAULT_SKILL_FILTERS, ...fromPrompt, ...fromState };
+  const hasBootstrap = hasMeaningfulBootstrap(bootstrapFilters, skillPromptText);
+
+  let firstProj = null;
+  if(hasBootstrap){
+    setUiFilters(bootstrapFilters);
+  } else {
+    firstProj = pickDefaultProject();
+    if(firstProj){
+      setUiFilters({ project: firstProj.id });
+    } else {
+      setUiFilters({ project: 'all' });
+    }
+  }
+
+  if(forceAggMode === true) aggMode = true;
+  if(forceAggMode === false) aggMode = false;
+  document.body.classList.toggle('agg-mode-active', aggMode);
+  document.getElementById('agg-toggle-btn').textContent = aggMode ? '⊞ 普通视图' : '⊞ 聚合视图';
+
+  applyFilters();
+  setTimeout(fitView, 150);
+
+  if(notify){
+    if(toastText){
+      setTimeout(() => showNotif(toastText), 400);
+    } else if(skillPromptText){
+      setTimeout(() => showNotif(`已应用自然语言: ${skillPromptText.slice(0, 36)}`), 700);
+    } else {
+      setTimeout(() => showNotif(`已加载项目：${firstProj ? firstProj.name : '全部'}`), 700);
+    }
+  }
+}
+
+async function fetchLiveJson(url){
+  const target = String(url || '').trim();
+  if(!target) throw new Error('missing live session url');
+  const sep = target.includes('?') ? '&' : '?';
+  const response = await fetch(`${target}${sep}_=${Date.now()}`, { cache: 'no-store' });
+  if(!response.ok){
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+function getLiveSessionConfig(){
+  return (SKILL_STATE && SKILL_STATE.liveSession) || {};
+}
+
+function liveSessionEnabled(){
+  const live = getLiveSessionConfig();
+  return Boolean(live && live.enabled && live.controlUrl && live.stateUrl);
+}
+
+function applyLiveSessionState(statePayload, options = {}){
+  const payload = statePayload && typeof statePayload === 'object' ? statePayload : {};
+  const nextPrompt = String(payload.prompt !== undefined ? payload.prompt : ((payload.skillState && payload.skillState.prompt) || skillPromptText));
+  resetViewStateAfterDatasetChange();
+  syncRuntimeDataset(payload.graphData || GRAPH_DATA, payload.appConfig || APP_CONFIG, payload.skillState || SKILL_STATE, nextPrompt);
+  applyDashboardBootstrap({
+    forceAggMode: options.forceAggMode,
+    notify: options.notify,
+    toastText: options.toastText || ''
+  });
+}
+
+async function pullLiveSessionState(force = false){
+  if(!liveSessionEnabled() || liveSessionBusy) return null;
+
+  liveSessionBusy = true;
+  try {
+    const live = getLiveSessionConfig();
+    const control = await fetchLiveJson(live.controlUrl);
+    const nextVersion = Number(control.version || 0);
+    if(!force && nextVersion <= liveSessionVersion){
+      return control;
+    }
+
+    updateSyncBadge('同步中…', 'yellow');
+    const state = await fetchLiveJson(live.stateUrl);
+    const hadError = Boolean(liveSessionError);
+    liveSessionError = '';
+    liveSessionVersion = Number(state.version || control.version || nextVersion || liveSessionVersion);
+    liveSessionDataVersion = Number(state.dataVersion || control.dataVersion || liveSessionDataVersion || 0);
+
+    applyLiveSessionState(state, {
+      forceAggMode: null,
+      notify: force || nextVersion > 0,
+      toastText: force ? '已同步最新看板状态' : `看板已更新：${String(state.prompt || control.prompt || '').slice(0, 24) || '新状态'}`
+    });
+
+    updateSyncBadge(control.refreshedData === false ? '筛选已更新' : '实时同步', control.refreshedData === false ? 'yellow' : 'green');
+    if(hadError){
+      setTimeout(() => showNotif('会话同步已恢复'), 300);
+    }
+    return control;
+  } catch (err) {
+    liveSessionError = err && err.message ? err.message : String(err || 'unknown error');
+    updateSyncBadge('同步异常', 'red');
+    console.warn('[ops-dashboard] live session sync failed:', err);
+    return null;
+  } finally {
+    liveSessionBusy = false;
+  }
+}
+
+function startLiveSessionPolling(){
+  if(liveSessionPollTimer){
+    clearInterval(liveSessionPollTimer);
+    liveSessionPollTimer = null;
+  }
+  if(!liveSessionEnabled()) return;
+
+  const live = getLiveSessionConfig();
+  const pollMs = Math.max(600, Number(live.pollMs || 1500));
+  updateSyncBadge('实时同步', 'green');
+  liveSessionPollTimer = setInterval(() => {
+    pullLiveSessionState(false);
+  }, pollMs);
+}
 
 function resolveProjectToken(token) {
   const raw = String(token || '').trim();
@@ -4410,43 +4652,9 @@ window.__OPS_DASHBOARD_SKILL__ = {
 };
 
 window.addEventListener('load', () => {
-  populateFilters();
-  initSVG();
-
-  const fromState = normalizeSkillFilterPatch((SKILL_STATE && SKILL_STATE.filters) || {});
-  const fromPrompt = inferSkillFiltersFromPrompt(skillPromptText);
-  const bootstrapFilters = { ...DEFAULT_SKILL_FILTERS, ...fromPrompt, ...fromState };
-  const hasBootstrap =
-    bootstrapFilters.project !== 'all' ||
-    bootstrapFilters.entityType !== 'all' ||
-    bootstrapFilters.relationType !== 'all' ||
-    bootstrapFilters.health !== 'all' ||
-    Boolean(bootstrapFilters.keyword) ||
-    Boolean(skillPromptText);
-
-  let firstProj = null;
-  if(hasBootstrap){
-    setUiFilters(bootstrapFilters);
-  } else {
-    firstProj = APP_CONFIG.projects.find(p => PROJS.includes(p.id)) || null;
-    if(firstProj){
-      setUiFilters({ project: firstProj.id });
-    } else {
-      setUiFilters({ project: 'all' });
-    }
-  }
-
   aggMode = true;
-  document.body.classList.add('agg-mode-active');
-  document.getElementById('agg-toggle-btn').textContent = '⊞ 普通视图';
-  applyFilters();
-  setTimeout(fitView, 150);
-
-  if(skillPromptText){
-    setTimeout(() => showNotif(`已应用自然语言: ${skillPromptText.slice(0, 36)}`), 700);
-  } else {
-    setTimeout(() => showNotif(`已加载项目：${firstProj ? firstProj.name : '全部'}`), 700);
-  }
+  applyDashboardBootstrap({ forceAggMode: true, notify: true });
+  startLiveSessionPolling();
 });
 
 window.addEventListener('message', handleSkillMessage);
