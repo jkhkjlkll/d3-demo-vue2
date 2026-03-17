@@ -20,7 +20,6 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
 DEFAULT_TEMPLATE = SKILL_DIR / "assets" / "dashboard.template.html"
 DEFAULT_MOCK_FILE = SKILL_DIR / "assets" / "mock_data.json"
-
 HEALTH_ALIAS_TO_KEY = {
     "正常": "ok",
     "ok": "ok",
@@ -207,6 +206,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build dashboard from backend data + natural language")
     parser.add_argument("--api-url", default="", help="Backend endpoint returning graph JSON")
     parser.add_argument("--app-id", default="", help="Optional appId query parameter passed to backend API")
+    parser.add_argument(
+        "--app-alias-file",
+        default="",
+        help="Optional JSON file mapping spoken app names to appId/app_user values",
+    )
     parser.add_argument("--prompt", default="", help="Natural-language request used to infer filters")
     parser.add_argument("--output", default="./out/dashboard.html", help="Output HTML file path")
     parser.add_argument("--template", default=str(DEFAULT_TEMPLATE), help="HTML template file path")
@@ -224,6 +228,27 @@ def parse_args() -> argparse.Namespace:
 def read_json_file(path: Path) -> Dict:
     with path.open("r", encoding="utf-8") as fp:
         return json.load(fp)
+
+
+def load_app_aliases(path_str: str) -> Dict[str, str]:
+    if not path_str:
+        return {}
+
+    path = Path(path_str).expanduser().resolve()
+    if not path.exists():
+        return {}
+
+    data = read_json_file(path)
+    if not isinstance(data, dict):
+        return {}
+
+    aliases: Dict[str, str] = {}
+    for key, value in data.items():
+        alias = str(key or "").strip()
+        target = str(value or "").strip()
+        if alias and target:
+            aliases[alias] = target
+    return aliases
 
 
 def build_request_url(api_url: str, app_id: str) -> str:
@@ -371,7 +396,7 @@ def infer_keyword(prompt: str) -> str:
     return ""
 
 
-def resolve_project_token(token: str, projects: Iterable[str]) -> str:
+def resolve_project_token(token: str, projects: Iterable[str], app_aliases: Dict[str, str] | None = None) -> str:
     raw = str(token or "").strip()
     if not raw:
         return ""
@@ -379,6 +404,9 @@ def resolve_project_token(token: str, projects: Iterable[str]) -> str:
     project_list = [str(project).strip() for project in projects if str(project).strip()]
     upper = raw.upper()
     lower = raw.lower()
+    alias_map = {str(key).strip().lower(): str(value).strip() for key, value in (app_aliases or {}).items() if str(key).strip() and str(value).strip()}
+    if lower in alias_map:
+        return alias_map[lower]
 
     for project in project_list:
         if project == raw or project.upper() == upper or project.lower() == lower:
@@ -392,7 +420,11 @@ def resolve_project_token(token: str, projects: Iterable[str]) -> str:
     return raw if not project_list else ""
 
 
-def extract_explicit_project_token(prompt: str, projects: Iterable[str]) -> str:
+def extract_explicit_project_token(
+    prompt: str,
+    projects: Iterable[str],
+    app_aliases: Dict[str, str] | None = None,
+) -> str:
     text = str(prompt or "").strip()
     if not text:
         return ""
@@ -402,24 +434,47 @@ def extract_explicit_project_token(prompt: str, projects: Iterable[str]) -> str:
         r"\bapp[\s_-]*user\b\s*[:=：]?\s*([A-Za-z0-9._\-/]+)",
         r"(?:应用|项目)\s*(?:id|名称|编码)?\s*[:=：]?\s*([A-Za-z0-9._\-/]+)",
         r"([A-Za-z0-9._\-/]+)\s*(?:应用|项目)",
+        r"(?:应用|项目)\s*(?:名|名称)?\s*[:=：]?\s*([A-Za-z0-9._\-/\u4e00-\u9fff]{2,40})",
+        r"([A-Za-z0-9._\-/\u4e00-\u9fff]{2,40})\s*(?:应用|项目)",
     ]
 
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.I)
         if match:
-            return resolve_project_token(match.group(1), projects)
+            return resolve_project_token(match.group(1), projects, app_aliases=app_aliases)
 
     return ""
 
 
-def infer_app_id_from_prompt(prompt: str) -> str:
-    return extract_explicit_project_token(prompt, [])
+def match_alias_in_prompt(prompt: str, app_aliases: Dict[str, str] | None = None) -> str:
+    text = str(prompt or "").strip().lower()
+    if not text:
+        return ""
+
+    aliases = app_aliases or {}
+    alias_items = sorted(
+        ((str(key).strip(), str(value).strip()) for key, value in aliases.items() if str(key).strip() and str(value).strip()),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    )
+    for alias, target in alias_items:
+        if alias.lower() in text:
+            return target
+    return ""
+
+
+def infer_app_id_from_prompt(prompt: str, app_aliases: Dict[str, str] | None = None) -> str:
+    explicit = extract_explicit_project_token(prompt, [], app_aliases=app_aliases)
+    if explicit:
+        return explicit
+    return match_alias_in_prompt(prompt, app_aliases=app_aliases)
 
 
 def infer_filters_from_prompt(
     prompt: str,
     projects: Iterable[str],
     relation_types: Iterable[str] | None = None,
+    app_aliases: Dict[str, str] | None = None,
 ) -> Dict[str, str]:
     filters = {
         "project": "all",
@@ -439,9 +494,13 @@ def infer_filters_from_prompt(
     if re.search(r"全部项目|所有项目|跨项目|allprojects", compact):
         filters["project"] = "all"
     else:
-        explicit_project = extract_explicit_project_token(text, projects)
+        explicit_project = extract_explicit_project_token(text, projects, app_aliases=app_aliases)
         if explicit_project:
             filters["project"] = explicit_project
+        elif app_aliases:
+            alias_project = resolve_project_token(match_alias_in_prompt(text, app_aliases=app_aliases), projects, app_aliases=app_aliases)
+            if alias_project:
+                filters["project"] = alias_project
 
         upper_text = text.upper()
         if filters["project"] == "all":
@@ -743,8 +802,9 @@ def load_source_data(args: argparse.Namespace) -> Tuple[Dict[str, List[Dict]], B
 
 def main() -> int:
     args = parse_args()
+    app_aliases = load_app_aliases(args.app_alias_file)
     if not args.app_id:
-        args.app_id = infer_app_id_from_prompt(args.prompt)
+        args.app_id = infer_app_id_from_prompt(args.prompt, app_aliases=app_aliases)
 
     try:
         normalized, ctx = load_source_data(args)
@@ -757,6 +817,7 @@ def main() -> int:
         args.prompt,
         projects,
         relation_types=[link.get("type", "") for link in normalized["links"]],
+        app_aliases=app_aliases,
     )
     filtered_nodes, filtered_links = apply_filters(normalized["nodes"], normalized["links"], filters)
     summary = build_summary(filtered_nodes, filtered_links)
@@ -775,6 +836,7 @@ def main() -> int:
             "rawLinkCount": ctx.raw_link_count,
             "appId": args.app_id,
         },
+        "appAliases": app_aliases,
     }
 
     payload = {
@@ -799,6 +861,7 @@ def main() -> int:
             "rawNodeCount": ctx.raw_node_count,
             "rawLinkCount": ctx.raw_link_count,
             "appId": args.app_id,
+            "appAliasFile": str(Path(args.app_alias_file).expanduser().resolve()) if args.app_alias_file else "",
         },
     }
 

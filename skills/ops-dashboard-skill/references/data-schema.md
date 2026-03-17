@@ -120,6 +120,18 @@ Natural-language project parsing also recognizes these explicit forms:
 - `应用 xxx`
 - `项目 xxx`
 
+If users speak a Chinese app name that does not appear directly in `nodes[].app_user`,
+pass an alias file such as:
+
+```json
+{
+  "支付系统": "app-pay-001",
+  "风控平台": "app-risk-001"
+}
+```
+
+The adapter will resolve the spoken alias to the canonical `appId`/`app_user` before filtering.
+
 ## Filter fields
 
 Inferred filter object:

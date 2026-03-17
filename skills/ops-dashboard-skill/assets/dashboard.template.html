@@ -4083,6 +4083,7 @@ const HEALTH_ALIAS = {
 };
 
 let skillPromptText = String((SKILL_STATE && SKILL_STATE.prompt) || '');
+const APP_ALIAS_MAP = (SKILL_STATE && SKILL_STATE.appAliases) || {};
 
 function resolveProjectToken(token) {
   const raw = String(token || '').trim();
@@ -4090,6 +4091,11 @@ function resolveProjectToken(token) {
 
   const upper = raw.toUpperCase();
   const lower = raw.toLowerCase();
+  const aliasKeys = Object.keys(APP_ALIAS_MAP || {});
+  const aliasMatch = aliasKeys.find((key) => String(key || '').trim().toLowerCase() === lower);
+  if (aliasMatch) {
+    return String(APP_ALIAS_MAP[aliasMatch] || '').trim();
+  }
 
   for (const project of PROJS) {
     const current = String(project || '').trim();
@@ -4120,13 +4126,32 @@ function extractExplicitProjectToken(text) {
     /\bapp[\s_-]*id\b\s*[:=：]?\s*([A-Za-z0-9._/-]+)/i,
     /\bapp[\s_-]*user\b\s*[:=：]?\s*([A-Za-z0-9._/-]+)/i,
     /(?:应用|项目)\s*(?:id|名称|编码)?\s*[:=：]?\s*([A-Za-z0-9._/-]+)/i,
-    /([A-Za-z0-9._/-]+)\s*(?:应用|项目)/i
+    /([A-Za-z0-9._/-]+)\s*(?:应用|项目)/i,
+    /(?:应用|项目)\s*(?:名|名称)?\s*[:=：]?\s*([A-Za-z0-9._/\-\u4e00-\u9fff]{2,40})/i,
+    /([A-Za-z0-9._/\-\u4e00-\u9fff]{2,40})\s*(?:应用|项目)/i
   ];
 
   for (const pattern of patterns) {
     const match = value.match(pattern);
     if (match && match[1]) {
       return resolveProjectToken(match[1]);
+    }
+  }
+
+  return '';
+}
+
+function matchAliasInPrompt(text) {
+  const value = String(text || '').trim().toLowerCase();
+  if (!value) return '';
+
+  const aliases = Object.entries(APP_ALIAS_MAP || {})
+    .filter(([key, target]) => String(key || '').trim() && String(target || '').trim())
+    .sort((a, b) => String(b[0]).length - String(a[0]).length);
+
+  for (const [alias, target] of aliases) {
+    if (value.includes(String(alias).trim().toLowerCase())) {
+      return String(target).trim();
     }
   }
 
@@ -4191,12 +4216,14 @@ function inferSkillFiltersFromPrompt(promptText){
     inferred.project = 'all';
   } else {
     const explicitProject = extractExplicitProjectToken(text);
+    const aliasProject = resolveProjectToken(matchAliasInPrompt(text));
     const upperText = text.toUpperCase();
     const matchedProject = PROJS
       .slice()
       .sort((a, b) => String(b).length - String(a).length)
       .find(p => upperText.includes(String(p).toUpperCase()));
     if(explicitProject) inferred.project = explicitProject;
+    else if(aliasProject) inferred.project = aliasProject;
     else if(matchedProject) inferred.project = matchedProject;
     else if(/p001|电商/.test(compact)) inferred.project = 'P001';
     else if(/p002|支付|金融/.test(compact)) inferred.project = 'P002';

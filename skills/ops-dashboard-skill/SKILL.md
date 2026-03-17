@@ -21,6 +21,7 @@ The generated HTML is self-contained and host-framework agnostic:
 Use one of these modes:
 - Backend mode: pass `--api-url` to fetch live data.
 - If the backend filters by application, also pass `--app-id` so the request becomes `?appId=...`.
+- If users refer to apps by spoken Chinese names, pass `--app-alias-file` with a JSON map from alias -> appId/app_user.
 - Mock mode: pass `--mock-file` or use default mock data.
 
 Mock backend script:
@@ -40,6 +41,7 @@ Run:
 python3 scripts/build_dashboard.py \
   --api-url http://127.0.0.1:8787/api/ops-graph \
   --app-id app-001 \
+  --app-alias-file ./references/app-aliases.example.json \
   --prompt "看 P002 告警 API，关键词: 风控" \
   --output ./out/dashboard.html
 ```
@@ -127,6 +129,7 @@ Response message:
 
 ### references/
 - `data-schema.md`: expected backend payload and normalization rules
+- `app-aliases.example.json`: sample spoken-name to appId/app_user mapping
 
 ### assets/
 - `dashboard.template.html`: portable HTML dashboard template
