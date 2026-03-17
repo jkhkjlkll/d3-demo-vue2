@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ops Dashboard Skill"
+  short_description: "Fetch data, infer filters, and render dashboard HTML."
+  default_prompt: "Use $ops-dashboard-skill to fetch backend graph data, infer natural-language filters, and generate a portable HTML dashboard."

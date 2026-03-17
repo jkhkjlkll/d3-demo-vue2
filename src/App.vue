@@ -61,10 +61,10 @@
         {{ aggMode ? '普通视图' : '聚合视图' }}
       </el-button>
       <el-button class="btn btn-default" size="mini" @click="fitView">适应视图</el-button>
-      <el-button class="btn btn-default" size="mini">刷新数据</el-button>
-      <el-button class="btn btn-default" size="mini">分析报告</el-button>
-      <el-button class="btn btn-default" size="mini">部署架构图</el-button>
-      <el-button class="btn btn-default" size="mini">数据链路图</el-button>
+      <el-button class="btn btn-default" size="mini" :loading="refreshing" @click="doRefresh">刷新数据</el-button>
+      <el-button class="btn btn-default" size="mini" @click="showAnalysis">分析报告</el-button>
+      <el-button class="btn btn-default" size="mini" @click="showDeployDiagram">部署架构图</el-button>
+      <el-button class="btn btn-default" size="mini" @click="showDataFlowDiagram">数据链路图</el-button>
     </div>
 
     <div class="main">
@@ -196,6 +196,54 @@
         <span class="tt-val" :style="{ color: row.color || 'var(--text)' }">{{ row.value }}</span>
       </div>
     </div>
+
+    <div class="skill-overlay" :class="{ visible: deployPanelVisible }">
+      <div class="skill-topbar">
+        <span class="skill-topbar-title">部署架构图</span>
+        <span class="skill-topbar-sub">{{ deploySubtitle }}</span>
+        <el-button class="btn btn-default skill-top-btn" size="mini" @click="exportSkillSVG('deploySvg', 'deploy-arch.svg')">导出 SVG</el-button>
+        <el-button class="btn btn-default skill-top-btn" size="mini" @click="closeSkillPanel('deploy')">关闭</el-button>
+      </div>
+      <div class="skill-canvas">
+        <svg ref="deploySvg"></svg>
+      </div>
+      <div class="skill-legend">
+        <div class="skill-legend-item" v-for="item in deployLegendItems" :key="`deploy-${item.label}`">
+          <span class="skill-legend-dot" :style="{ background: item.color }"></span>
+          <span>{{ item.label }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="skill-overlay" :class="{ visible: dataflowPanelVisible }">
+      <div class="skill-topbar">
+        <span class="skill-topbar-title">数据链路图</span>
+        <span class="skill-topbar-sub">{{ dataflowSubtitle }}</span>
+        <el-button class="btn btn-default skill-top-btn" size="mini" @click="exportSkillSVG('dataflowSvg', 'data-flow.svg')">导出 SVG</el-button>
+        <el-button class="btn btn-default skill-top-btn" size="mini" @click="closeSkillPanel('dataflow')">关闭</el-button>
+      </div>
+      <div class="skill-canvas">
+        <svg ref="dataflowSvg"></svg>
+      </div>
+      <div class="skill-legend">
+        <div class="skill-legend-item" v-for="item in dataflowLegendItems" :key="`flow-${item.label}`">
+          <span class="skill-legend-line" :style="{ background: item.color }"></span>
+          <span>{{ item.label }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" :class="{ visible: analysisVisible }" @click.self="closeModal">
+      <div class="modal-box">
+        <div class="modal-title">图谱分析报告</div>
+        <div class="modal-body">
+          <div class="analysis-line" v-for="(line, index) in analysisLines" :key="`analysis-${index}`">{{ line }}</div>
+        </div>
+        <div class="modal-footer">
+          <el-button class="btn btn-primary" size="mini" @click="closeModal">关闭</el-button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -318,8 +366,17 @@ export default {
       },
       nowTime: '',
       aggMode: false,
+      refreshing: false,
       detailOpen: true,
       chatCollapsed: false,
+      analysisVisible: false,
+      analysisLines: [],
+      deployPanelVisible: false,
+      dataflowPanelVisible: false,
+      deploySubtitle: '基于知识图谱自动生成',
+      dataflowSubtitle: '基于知识图谱自动生成',
+      deployLegendItems: [],
+      dataflowLegendItems: [],
       selectedNode: null,
       tooltip: {
         visible: false,
@@ -342,20 +399,38 @@ export default {
       deep: true,
       handler() {
         this.renderGraph()
+        if (this.deployPanelVisible) this.$nextTick(() => this.renderDeployDiagram())
+        if (this.dataflowPanelVisible) this.$nextTick(() => this.renderDataFlowDiagram())
       }
     }
   },
   mounted() {
     this.updateTime()
     this.loadAllData()
-    window.addEventListener('resize', this.renderGraph)
+      .then(() => {
+        this.applyBootstrapFromUrl()
+      })
+      .catch(() => {})
+    this.registerAgentBridge()
+    window.addEventListener('resize', this.handleResize)
     this._timeTimer = setInterval(this.updateTime, 1000)
   },
   beforeDestroy() {
-    window.removeEventListener('resize', this.renderGraph)
+    window.removeEventListener('resize', this.handleResize)
+    this.unregisterAgentBridge()
     clearInterval(this._timeTimer)
   },
   methods: {
+    handleResize() {
+      this.renderGraph()
+      if (this.deployPanelVisible) this.$nextTick(() => this.renderDeployDiagram())
+      if (this.dataflowPanelVisible) this.$nextTick(() => this.renderDataFlowDiagram())
+    },
+    notify(type, message) {
+      if (this.$message && typeof this.$message[type] === 'function') {
+        this.$message[type](message)
+      }
+    },
     updateTime() {
       const now = new Date()
       const pad = (n) => String(n).padStart(2, '0')
@@ -424,6 +499,313 @@ export default {
       const hit = this.relationTypes.find((t) => t.key === key)
       return hit ? hit.label : key
     },
+    sanitizeFilterPatch(patch = {}) {
+      const next = {}
+      const projectMap = new Map(this.projectOptions.map((item) => [this.normalizeText(item.value), item.value]))
+      const entityTypeSet = new Set(this.entityTypes.map((item) => item.key))
+      const relationTypeSet = new Set(this.relationTypes.map((item) => item.key))
+      const healthSet = new Set(['all', 'ok', 'warn', 'err'])
+
+      if (patch.project !== undefined && patch.project !== null) {
+        const raw = this.normalizeText(String(patch.project).trim())
+        if (raw === 'all' || raw === '全部') next.project = 'all'
+        else if (projectMap.has(raw)) next.project = projectMap.get(raw)
+      }
+      if (patch.entityType !== undefined && patch.entityType !== null) {
+        const raw = this.normalizeText(String(patch.entityType).trim())
+        if (raw === 'all' || raw === '全部') next.entityType = 'all'
+        else if (entityTypeSet.has(raw)) next.entityType = raw
+      }
+      if (patch.relationType !== undefined && patch.relationType !== null) {
+        const raw = this.normalizeText(String(patch.relationType).trim())
+        if (raw === 'all' || raw === '全部') next.relationType = 'all'
+        else if (relationTypeSet.has(raw)) next.relationType = raw
+      }
+      if (patch.health !== undefined && patch.health !== null) {
+        const raw = this.normalizeText(String(patch.health).trim())
+        if (raw === '正常') next.health = 'ok'
+        else if (raw === '告警') next.health = 'warn'
+        else if (raw === '异常') next.health = 'err'
+        else if (healthSet.has(raw)) next.health = raw
+      }
+      if (patch.keyword !== undefined && patch.keyword !== null) {
+        next.keyword = String(patch.keyword).trim().slice(0, 80)
+      }
+
+      return next
+    },
+    applyFiltersPatch(patch = {}, source = 'unknown') {
+      const normalizedPatch = this.sanitizeFilterPatch(patch)
+      if (!Object.keys(normalizedPatch).length) {
+        return { applied: false, summary: this.getCurrentFilterSummary(), patch: {}, source }
+      }
+      this.filters = { ...this.filters, ...normalizedPatch }
+      return { applied: true, summary: this.getCurrentFilterSummary(), patch: normalizedPatch, source }
+    },
+    resolveProjectFromText(rawText, normalizedText) {
+      if (/全部项目|所有项目|跨项目|全项目/.test(rawText)) return 'all'
+      if (/p001|p1|电商/.test(normalizedText)) return 'P001'
+      if (/p002|p2|金融/.test(normalizedText)) return 'P002'
+
+      const hit = this.projectOptions.find((item) => {
+        const value = this.normalizeText(item.value)
+        const label = this.normalizeText(item.label)
+        return normalizedText.includes(value) || normalizedText.includes(label)
+      })
+      return hit ? hit.value : null
+    },
+    resolveEntityTypeFromText(rawText, normalizedText) {
+      if (/全部实体|所有实体|类型不限/.test(rawText)) return 'all'
+      const entityHints = [
+        { key: 'api', patterns: ['api', '接口'] },
+        { key: 'service', patterns: ['服务', '微服务', 'svc'] },
+        { key: 'db', patterns: ['数据库', 'db', 'mysql', 'postgres', 'oracle'] },
+        { key: 'middleware', patterns: ['中间件', 'mq', 'kafka', 'redis', 'es'] },
+        { key: 'compute', patterns: ['计算', '节点', 'k8s', 'vm'] },
+        { key: 'alarm', patterns: ['告警', 'alarm'] },
+        { key: 'user', patterns: ['用户'] },
+        { key: 'domain', patterns: ['域名'] }
+      ]
+      const hit = entityHints.find((item) => item.patterns.some((pattern) => normalizedText.includes(pattern)))
+      return hit ? hit.key : null
+    },
+    resolveRelationTypeFromText(rawText, normalizedText) {
+      if (/全部关系|所有关系|关系不限/.test(rawText)) return 'all'
+      const relationHints = [
+        { key: 'access', patterns: ['访问'] },
+        { key: 'call', patterns: ['调用'] },
+        { key: 'lb', patterns: ['负载', 'lb'] },
+        { key: 'host', patterns: ['承载', '部署到', '运行在'] },
+        { key: 'monitor', patterns: ['监控'] }
+      ]
+      const hit = relationHints.find((item) => item.patterns.some((pattern) => normalizedText.includes(pattern)))
+      return hit ? hit.key : null
+    },
+    resolveHealthFromText(rawText, normalizedText) {
+      if (/全部状态|所有状态|状态不限/.test(rawText)) return 'all'
+      if (/异常|故障|错误|error|err/.test(normalizedText)) return 'err'
+      if (/告警|warning|warn/.test(normalizedText)) return 'warn'
+      if (/正常|ok|healthy/.test(normalizedText)) return 'ok'
+      return null
+    },
+    extractKeywordFromText(rawText) {
+      const explicitMatch = rawText.match(/(?:关键词|关键字|搜索|查找)\s*[:：]?\s*([^\n,，;；]+)/)
+      if (explicitMatch && explicitMatch[1]) return explicitMatch[1].trim()
+      const quotedMatch = rawText.match(/[“"]([^"”]{1,40})[”"]/)
+      if (quotedMatch && quotedMatch[1]) return quotedMatch[1].trim()
+      return ''
+    },
+    inferFilterPatchFromText(text) {
+      const rawText = String(text || '').trim()
+      if (!rawText) return { matched: false, patch: {}, mode: 'empty' }
+
+      const normalizedText = this.normalizeText(rawText)
+      const commandText = normalizedText.replace(/\s+/g, '')
+      const commandMap = [
+        {
+          keys: ['/demo-api', 'demo-api', '看p001api'],
+          patch: { project: 'P001', entityType: 'api', relationType: 'all', health: 'all', keyword: '' }
+        },
+        {
+          keys: ['/demo-db', 'demo-db', '看p001数据库'],
+          patch: { project: 'P001', entityType: 'db', relationType: 'all', health: 'all', keyword: '' }
+        },
+        {
+          keys: ['/demo-p002-api', 'demo-p002-api', '看p002api'],
+          patch: { project: 'P002', entityType: 'api', relationType: 'all', health: 'all', keyword: '' }
+        },
+        {
+          keys: ['/demo-p002-warn', 'demo-p002-warn', '看p002告警'],
+          patch: { project: 'P002', entityType: 'all', relationType: 'all', health: 'warn', keyword: '' }
+        },
+        {
+          keys: ['/demo-warn', 'demo-warn', '只看告警'],
+          patch: { project: 'P001', entityType: 'all', relationType: 'all', health: 'warn', keyword: '' }
+        },
+        {
+          keys: ['/demo-reset', 'demo-reset', '重置筛选'],
+          patch: { project: 'P001', entityType: 'all', relationType: 'all', health: 'all', keyword: '' }
+        }
+      ]
+      const commandHit = commandMap.find((item) => item.keys.includes(commandText))
+      if (commandHit) {
+        return { matched: true, patch: { ...commandHit.patch }, mode: 'command' }
+      }
+
+      const patch = {}
+      if (/重置筛选|清空筛选|恢复默认|reset/.test(normalizedText)) {
+        Object.assign(patch, {
+          project: 'all',
+          entityType: 'all',
+          relationType: 'all',
+          health: 'all',
+          keyword: ''
+        })
+      }
+
+      const project = this.resolveProjectFromText(rawText, normalizedText)
+      const entityType = this.resolveEntityTypeFromText(rawText, normalizedText)
+      const relationType = this.resolveRelationTypeFromText(rawText, normalizedText)
+      const health = this.resolveHealthFromText(rawText, normalizedText)
+      const keyword = this.extractKeywordFromText(rawText)
+
+      if (project) patch.project = project
+      if (entityType) patch.entityType = entityType
+      if (relationType) patch.relationType = relationType
+      if (health) patch.health = health
+      if (keyword) patch.keyword = keyword
+
+      if (!Object.keys(patch).length) return { matched: false, patch: {}, mode: 'none' }
+      return { matched: true, patch, mode: 'natural' }
+    },
+    applyAgentPrompt(prompt, options = {}) {
+      const { silent = false, source = 'agent_prompt' } = options
+      const parsed = this.inferFilterPatchFromText(prompt)
+      if (!parsed.matched) {
+        return { applied: false, summary: this.getCurrentFilterSummary(), patch: {}, source }
+      }
+
+      const result = this.applyFiltersPatch(parsed.patch, source)
+      if (!silent && result.applied) {
+        this.notify('success', `已应用筛选：${result.summary}`)
+      }
+      return result
+    },
+    openPanelByName(panelName) {
+      const key = this.normalizeText(panelName || '')
+      if (!key) return false
+      if (key.includes('deploy') || key.includes('架构')) {
+        this.showDeployDiagram()
+        return true
+      }
+      if (key.includes('dataflow') || key.includes('链路') || key.includes('flow')) {
+        this.showDataFlowDiagram()
+        return true
+      }
+      if (key.includes('analysis') || key.includes('报告')) {
+        this.showAnalysis()
+        return true
+      }
+      return false
+    },
+    applyAgentPayload(payload = {}, options = {}) {
+      const { silent = false, source = 'agent_payload' } = options
+      const data = payload && typeof payload === 'object' ? payload : {}
+      let applied = false
+      let summary = this.getCurrentFilterSummary()
+
+      if (data.filters && typeof data.filters === 'object') {
+        const filterResult = this.applyFiltersPatch(data.filters, source)
+        applied = applied || filterResult.applied
+        summary = filterResult.summary
+      }
+
+      if (data.prompt || data.text) {
+        const promptResult = this.applyAgentPrompt(data.prompt || data.text, { silent: true, source })
+        applied = applied || promptResult.applied
+        summary = promptResult.summary
+      }
+
+      if (data.panel) this.openPanelByName(data.panel)
+
+      if (!silent && applied) {
+        this.notify('success', `Agent 指令已生效：${summary}`)
+      }
+
+      return { applied, summary }
+    },
+    readUrlControlPayload() {
+      if (typeof window === 'undefined') return {}
+      const params = new URLSearchParams(window.location.search || '')
+      const payload = {}
+      const filters = {}
+
+      const prompt = params.get('prompt') || params.get('q') || params.get('nl')
+      if (prompt) payload.prompt = prompt
+
+      const project = params.get('project')
+      const entityType = params.get('entityType')
+      const relationType = params.get('relationType')
+      const health = params.get('health')
+      const keyword = params.get('keyword')
+      const panel = params.get('panel')
+
+      if (project) filters.project = project
+      if (entityType) filters.entityType = entityType
+      if (relationType) filters.relationType = relationType
+      if (health) filters.health = health
+      if (keyword) filters.keyword = keyword
+      if (Object.keys(filters).length) payload.filters = filters
+      if (panel) payload.panel = panel
+
+      return payload
+    },
+    applyBootstrapFromUrl() {
+      const payload = this.readUrlControlPayload()
+      if (!payload || !Object.keys(payload).length) return
+      this.applyAgentPayload(payload, { silent: true, source: 'url' })
+    },
+    handleAgentMessage(event) {
+      const data = event && event.data
+      if (!data || typeof data !== 'object') return
+      const type = String(data.type || data.action || '')
+      if (!type.startsWith('opsgraph.')) return
+
+      let result = { applied: false, summary: this.getCurrentFilterSummary() }
+      if (type === 'opsgraph.applyPrompt') {
+        result = this.applyAgentPrompt(data.prompt || data.text || '', { silent: true, source: 'post_message' })
+        if (data.panel) this.openPanelByName(data.panel)
+      } else if (type === 'opsgraph.setFilters') {
+        result = this.applyFiltersPatch(data.filters || data.payload || {}, 'post_message')
+        if (data.panel) this.openPanelByName(data.panel)
+      } else if (type === 'opsgraph.run') {
+        result = this.applyAgentPayload(data.payload || data, { silent: true, source: 'post_message' })
+      } else if (type === 'opsgraph.openPanel') {
+        const opened = this.openPanelByName(data.panel || data.name)
+        result = { applied: opened, summary: this.getCurrentFilterSummary() }
+      } else if (type === 'opsgraph.getState') {
+        result = { applied: true, summary: this.getCurrentFilterSummary(), filters: { ...this.filters } }
+      }
+
+      if (event && event.source && typeof event.source.postMessage === 'function') {
+        event.source.postMessage(
+          {
+            type: 'opsgraph.result',
+            requestId: data.requestId || null,
+            ...result
+          },
+          event.origin || '*'
+        )
+      }
+    },
+    registerAgentBridge() {
+      if (typeof window === 'undefined') return
+      this._agentMessageHandler = (event) => this.handleAgentMessage(event)
+      window.addEventListener('message', this._agentMessageHandler)
+
+      this._agentBridge = {
+        applyPrompt: (prompt, options = {}) =>
+          this.applyAgentPrompt(prompt, { ...options, silent: options.silent !== undefined ? options.silent : true, source: 'window_bridge' }),
+        setFilters: (filters, options = {}) =>
+          this.applyFiltersPatch(filters, options.source || 'window_bridge'),
+        run: (payload, options = {}) =>
+          this.applyAgentPayload(payload, { ...options, silent: options.silent !== undefined ? options.silent : true, source: 'window_bridge' }),
+        openPanel: (panel) => this.openPanelByName(panel),
+        getState: () => ({ filters: { ...this.filters }, summary: this.getCurrentFilterSummary() })
+      }
+      window.__OPS_GRAPH__ = this._agentBridge
+    },
+    unregisterAgentBridge() {
+      if (typeof window === 'undefined') return
+      if (this._agentMessageHandler) {
+        window.removeEventListener('message', this._agentMessageHandler)
+        this._agentMessageHandler = null
+      }
+      if (window.__OPS_GRAPH__ === this._agentBridge) {
+        delete window.__OPS_GRAPH__
+      }
+      this._agentBridge = null
+    },
     getFilteredGraphData() {
       const { project, entityType, relationType, health, keyword } = this.filters
       const kw = this.normalizeText((keyword || '').trim())
@@ -462,39 +844,8 @@ export default {
       return parts.join('，')
     },
     applyChatFiltersFromText(text) {
-      const cmd = this.normalizeText(text).replace(/\s+/g, '')
-      const commandMap = [
-        {
-          keys: ['/demo-api', 'demo-api', '看p001api'],
-          patch: { project: 'P001', entityType: 'api', relationType: 'all', health: 'all', keyword: '' }
-        },
-        {
-          keys: ['/demo-db', 'demo-db', '看p001数据库'],
-          patch: { project: 'P001', entityType: 'db', relationType: 'all', health: 'all', keyword: '' }
-        },
-        {
-          keys: ['/demo-p002-api', 'demo-p002-api', '看p002api'],
-          patch: { project: 'P002', entityType: 'api', relationType: 'all', health: 'all', keyword: '' }
-        },
-        {
-          keys: ['/demo-p002-warn', 'demo-p002-warn', '看p002告警'],
-          patch: { project: 'P002', entityType: 'all', relationType: 'all', health: 'warn', keyword: '' }
-        },
-        {
-          keys: ['/demo-warn', 'demo-warn', '只看告警'],
-          patch: { project: 'P001', entityType: 'all', relationType: 'all', health: 'warn', keyword: '' }
-        },
-        {
-          keys: ['/demo-reset', 'demo-reset', '重置筛选'],
-          patch: { project: 'P001', entityType: 'all', relationType: 'all', health: 'all', keyword: '' }
-        }
-      ]
-
-      const hit = commandMap.find((item) => item.keys.includes(cmd))
-      if (!hit) return { applied: false, summary: '' }
-
-      this.filters = { ...this.filters, ...hit.patch }
-      return { applied: true, summary: this.getCurrentFilterSummary() }
+      const result = this.applyAgentPrompt(text, { silent: true, source: 'chat' })
+      return { applied: result.applied, summary: result.summary }
     },
     async handleChatSend({ text, assistantMessageId }) {
       const chat = this.$refs.opsChat
@@ -524,12 +875,569 @@ export default {
         } else {
           chat.finishAssistantReply(
             assistantMessageId,
-            `未命中固定命令。当前支持：\n1) /demo-api（看 P001 API）\n2) /demo-db（看 P001 数据库）\n3) /demo-p002-api（看 P002 API）\n4) /demo-warn（看 P001 告警）\n5) /demo-p002-warn（看 P002 告警）\n6) /demo-reset（重置筛选）`
+            `我没有识别出可执行筛选。\n你可以直接说自然语言，比如：\n1) 看 P002 告警\n2) 只看 API\n3) 项目 P001，状态正常，关键词: 支付\n也支持固定命令：/demo-api /demo-db /demo-p002-api /demo-warn /demo-p002-warn /demo-reset`
           )
         }
       } catch (error) {
         chat.failAssistantReply(assistantMessageId, '处理失败，请检查后端服务后重试。')
       }
+    },
+    async doRefresh() {
+      if (this.refreshing) return
+      this.refreshing = true
+      try {
+        await Promise.all([this.fetchStats(), this.fetchGraphData(), this.fetchDetailData()])
+        this.renderGraph()
+        if (this.deployPanelVisible) this.$nextTick(() => this.renderDeployDiagram())
+        if (this.dataflowPanelVisible) this.$nextTick(() => this.renderDataFlowDiagram())
+        this.notify('success', '图谱数据已刷新')
+      } catch (error) {
+        this.notify('error', '刷新失败，请检查数据源后重试')
+      } finally {
+        this.refreshing = false
+      }
+    },
+    showAnalysis() {
+      const { nodes, links } = this.getFilteredGraphData()
+      if (!nodes.length) {
+        this.analysisLines = ['当前筛选条件下没有匹配节点。']
+        this.analysisVisible = true
+        return
+      }
+
+      const abnormalNodes = nodes.filter((node) => node.health === '告警' || node.health === '异常')
+      const nodeIdSet = new Set(nodes.map((node) => node.id))
+      const degreeMap = new Map(nodes.map((node) => [node.id, { in: 0, out: 0 }]))
+      links.forEach((link) => {
+        const sourceId = typeof link.source === 'object' ? link.source.id : link.source
+        const targetId = typeof link.target === 'object' ? link.target.id : link.target
+        if (degreeMap.has(sourceId)) degreeMap.get(sourceId).out += 1
+        if (degreeMap.has(targetId)) degreeMap.get(targetId).in += 1
+      })
+
+      const typeCountMap = new Map()
+      nodes.forEach((node) => {
+        typeCountMap.set(node.type, (typeCountMap.get(node.type) || 0) + 1)
+      })
+      const topTypes = Array.from(typeCountMap.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([type, count]) => `${this.typeLabel(type)} ${count}`)
+
+      const criticalNodes = abnormalNodes
+        .map((node) => {
+          const degree = degreeMap.get(node.id) || { in: 0, out: 0 }
+          return { node, score: degree.in + degree.out }
+        })
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+
+      const projectSet = new Set(nodes.map((node) => node.project || '未知项目'))
+      const crossProjectLinks = links.filter((link) => {
+        const sourceId = typeof link.source === 'object' ? link.source.id : link.source
+        const targetId = typeof link.target === 'object' ? link.target.id : link.target
+        if (!nodeIdSet.has(sourceId) || !nodeIdSet.has(targetId)) return false
+        const sourceNode = nodes.find((node) => node.id === sourceId)
+        const targetNode = nodes.find((node) => node.id === targetId)
+        if (!sourceNode || !targetNode) return false
+        return sourceNode.project !== targetNode.project
+      })
+
+      const lines = [
+        `筛选范围：${this.getCurrentFilterSummary()}`,
+        `覆盖项目：${projectSet.size} 个，节点 ${nodes.length} 个，关系 ${links.length} 条`,
+        `健康概况：正常 ${nodes.filter((node) => node.health === '正常').length}，告警 ${nodes.filter((node) => node.health === '告警').length}，异常 ${nodes.filter((node) => node.health === '异常').length}`,
+        `高频实体类型：${topTypes.length ? topTypes.join('，') : '暂无'}`,
+        `跨项目链路：${crossProjectLinks.length} 条`
+      ]
+
+      if (criticalNodes.length) {
+        lines.push('重点关注节点：')
+        criticalNodes.forEach((item) => {
+          lines.push(`- ${item.node.label}（${item.node.health}，关联 ${item.score}）`)
+        })
+      } else {
+        lines.push('重点关注节点：暂无告警/异常节点')
+      }
+
+      this.analysisLines = lines
+      this.analysisVisible = true
+    },
+    closeModal() {
+      this.analysisVisible = false
+    },
+    showDeployDiagram() {
+      this.dataflowPanelVisible = false
+      this.deployPanelVisible = true
+      this.$nextTick(() => this.renderDeployDiagram())
+    },
+    showDataFlowDiagram() {
+      this.deployPanelVisible = false
+      this.dataflowPanelVisible = true
+      this.$nextTick(() => this.renderDataFlowDiagram())
+    },
+    closeSkillPanel(panel) {
+      if (panel === 'deploy') this.deployPanelVisible = false
+      if (panel === 'dataflow') this.dataflowPanelVisible = false
+    },
+    getActiveProjects() {
+      const selected = this.filters.project
+      if (!selected || selected === 'all') {
+        return this.projectOptions.map((item) => item.value)
+      }
+      return [selected]
+    },
+    getProjectScopedGraphData() {
+      const selected = this.filters.project
+      const activeProjects = new Set(this.getActiveProjects())
+      const matchAll = !selected || selected === 'all'
+      const nodes = this.graphData.nodes.filter((node) => {
+        if (matchAll) return true
+        return activeProjects.has(node.project)
+      })
+
+      const nodeIds = new Set(nodes.map((node) => node.id))
+      const links = this.graphData.links.filter((link) => {
+        const sourceId = typeof link.source === 'object' ? link.source.id : link.source
+        const targetId = typeof link.target === 'object' ? link.target.id : link.target
+        return nodeIds.has(sourceId) && nodeIds.has(targetId)
+      })
+      return { nodes, links }
+    },
+    projectLabel(projectId) {
+      const hit = this.projectOptions.find((item) => item.value === projectId)
+      return hit ? hit.label : projectId
+    },
+    healthColor(health) {
+      if (health === '异常') return '#f05252'
+      if (health === '告警') return '#f0b429'
+      return '#00b37a'
+    },
+    shortLabel(text, maxLen = 14) {
+      const source = String(text || '')
+      if (source.length <= maxLen) return source
+      return `${source.slice(0, maxLen - 1)}…`
+    },
+    makeCurvePath(source, target) {
+      const sx = source.x
+      const sy = source.y
+      const tx = target.x
+      const ty = target.y
+      if (tx <= sx) {
+        const midX = (sx + tx) / 2
+        const lift = Math.max(40, Math.abs(ty - sy) * 0.55 + 22)
+        return `M${sx},${sy} C${midX},${sy - lift} ${midX},${ty - lift} ${tx},${ty}`
+      }
+      const dx = tx - sx
+      const c1x = sx + Math.max(36, dx * 0.42)
+      const c2x = tx - Math.max(36, dx * 0.42)
+      return `M${sx},${sy} C${c1x},${sy} ${c2x},${ty} ${tx},${ty}`
+    },
+    layoutNodesByProjectAndLayer(nodes, layerByType, layerCount, width, height) {
+      const projects = [...new Set(nodes.map((node) => node.project || '未命名项目'))].sort()
+      const laneGap = 20
+      const topPad = 70
+      const bottomPad = 38
+      const leftPad = 190
+      const rightPad = 72
+      const laneHeight = Math.max(
+        120,
+        (height - topPad - bottomPad - laneGap * Math.max(0, projects.length - 1)) / Math.max(projects.length, 1)
+      )
+      const usableWidth = Math.max(300, width - leftPad - rightPad)
+      const layerStep = layerCount > 1 ? usableWidth / (layerCount - 1) : 0
+      const projectTopMap = new Map(projects.map((project, index) => [project, topPad + index * (laneHeight + laneGap)]))
+
+      const positionedNodes = nodes.map((node) => {
+        const layerRaw = layerByType(node.type)
+        const layer = Number.isFinite(layerRaw) ? layerRaw : 0
+        return {
+          ...node,
+          layer: Math.max(0, Math.min(layerCount - 1, layer))
+        }
+      })
+
+      const grouped = new Map()
+      positionedNodes.forEach((node) => {
+        const key = `${node.project || '未命名项目'}|${node.layer}`
+        if (!grouped.has(key)) grouped.set(key, [])
+        grouped.get(key).push(node)
+      })
+
+      grouped.forEach((groupNodes, key) => {
+        const [project, layerText] = key.split('|')
+        const layer = Number(layerText)
+        const laneTop = projectTopMap.get(project) || topPad
+        const innerTop = laneTop + 42
+        const innerBottom = Math.max(innerTop + 6, laneTop + laneHeight - 18)
+        const centerY = (innerTop + innerBottom) / 2
+        const x = leftPad + layerStep * layer
+        groupNodes.sort((a, b) => String(a.label).localeCompare(String(b.label)))
+
+        if (groupNodes.length === 1) {
+          groupNodes[0].x = x
+          groupNodes[0].y = centerY
+          return
+        }
+
+        const step = (innerBottom - innerTop) / Math.max(groupNodes.length - 1, 1)
+        groupNodes.forEach((node, index) => {
+          node.x = x
+          node.y = innerTop + step * index
+        })
+      })
+
+      return {
+        nodes: positionedNodes,
+        projects,
+        metrics: {
+          topPad,
+          laneGap,
+          laneHeight,
+          leftPad,
+          rightPad,
+          layerStep
+        }
+      }
+    },
+    renderDeployDiagram() {
+      const svgEl = this.$refs.deploySvg
+      if (!svgEl) return
+      const wrap = svgEl.parentElement
+      const width = Math.max((wrap && wrap.clientWidth) || 0, 920)
+      const height = Math.max((wrap && wrap.clientHeight) || 0, 520)
+      const svg = d3.select(svgEl)
+      svg.selectAll('*').remove()
+      svg.attr('width', width).attr('height', height)
+
+      const { nodes, links } = this.getProjectScopedGraphData()
+      if (!nodes.length) {
+        svg
+          .append('text')
+          .attr('x', width / 2)
+          .attr('y', height / 2)
+          .attr('text-anchor', 'middle')
+          .attr('fill', '#8b97ad')
+          .attr('font-size', 14)
+          .attr('font-family', 'Noto Sans SC, sans-serif')
+          .text('暂无部署数据')
+        this.deployLegendItems = []
+        return
+      }
+
+      const layers = [
+        { label: '入口层', types: ['user', 'domain'], color: '#00bcd4' },
+        { label: 'API 层', types: ['api'], color: '#1a7bf2' },
+        { label: '应用层', types: ['service'], color: '#00b37a' },
+        { label: '数据/中间件', types: ['middleware', 'db'], color: '#8b6cff' },
+        { label: '基础设施', types: ['compute', 'alarm'], color: '#ff8c33' }
+      ]
+      const typeToLayer = {}
+      layers.forEach((layer, index) => {
+        layer.types.forEach((type) => {
+          typeToLayer[type] = index
+        })
+      })
+
+      const layout = this.layoutNodesByProjectAndLayer(
+        nodes,
+        (type) => (typeToLayer[type] === undefined ? 2 : typeToLayer[type]),
+        layers.length,
+        width,
+        height
+      )
+      const nodeMap = new Map(layout.nodes.map((node) => [node.id, node]))
+      const edgeData = links
+        .map((link) => {
+          const sourceId = typeof link.source === 'object' ? link.source.id : link.source
+          const targetId = typeof link.target === 'object' ? link.target.id : link.target
+          return {
+            ...link,
+            source: nodeMap.get(sourceId),
+            target: nodeMap.get(targetId)
+          }
+        })
+        .filter((edge) => edge.source && edge.target)
+
+      const guideLayer = svg.append('g')
+      layers.forEach((layer, index) => {
+        const x = layout.metrics.leftPad + layout.metrics.layerStep * index
+        guideLayer
+          .append('line')
+          .attr('x1', x)
+          .attr('y1', 46)
+          .attr('x2', x)
+          .attr('y2', height - 20)
+          .attr('stroke', '#d5dfef')
+          .attr('stroke-width', 1)
+          .attr('stroke-dasharray', '4 6')
+        guideLayer
+          .append('text')
+          .attr('x', x)
+          .attr('y', 26)
+          .attr('text-anchor', 'middle')
+          .attr('fill', layer.color)
+          .attr('font-size', 11)
+          .attr('font-family', 'IBM Plex Mono, monospace')
+          .text(layer.label)
+      })
+
+      const bands = svg.append('g')
+      layout.projects.forEach((project, index) => {
+        const y = layout.metrics.topPad + index * (layout.metrics.laneHeight + layout.metrics.laneGap)
+        bands
+          .append('rect')
+          .attr('x', 18)
+          .attr('y', y)
+          .attr('width', width - 36)
+          .attr('height', layout.metrics.laneHeight)
+          .attr('rx', 10)
+          .attr('fill', index % 2 === 0 ? 'rgba(26,123,242,0.04)' : 'rgba(0,179,122,0.04)')
+          .attr('stroke', 'rgba(185,201,225,0.6)')
+        bands
+          .append('text')
+          .attr('x', 28)
+          .attr('y', y + 20)
+          .attr('fill', '#5d6b86')
+          .attr('font-size', 11)
+          .attr('font-family', 'IBM Plex Mono, monospace')
+          .text(this.projectLabel(project))
+      })
+
+      svg
+        .append('g')
+        .selectAll('path')
+        .data(edgeData)
+        .enter()
+        .append('path')
+        .attr('class', 'dep-edge-flow')
+        .attr('d', (edge) => this.makeCurvePath(edge.source, edge.target))
+        .attr('fill', 'none')
+        .attr('stroke', (edge) => this.relationColor(edge.type))
+        .attr('stroke-width', 1.3)
+        .attr('stroke-opacity', 0.42)
+        .attr('stroke-dasharray', (edge) => (edge.type === 'monitor' ? '3 5' : '7 6'))
+
+      const nodeG = svg.append('g').selectAll('g').data(layout.nodes).enter().append('g')
+      const nodeWidth = 136
+      const nodeHeight = 46
+      nodeG.attr('transform', (node) => `translate(${node.x - nodeWidth / 2}, ${node.y - nodeHeight / 2})`)
+
+      nodeG
+        .append('rect')
+        .attr('width', nodeWidth)
+        .attr('height', nodeHeight)
+        .attr('rx', 6)
+        .attr('fill', '#ffffff')
+        .attr('stroke', (node) => this.colorByType(node.type))
+        .attr('stroke-width', 1.3)
+
+      nodeG
+        .append('rect')
+        .attr('width', 4)
+        .attr('height', nodeHeight)
+        .attr('rx', 4)
+        .attr('fill', (node) => this.colorByType(node.type))
+
+      nodeG
+        .append('text')
+        .attr('x', 10)
+        .attr('y', 19)
+        .attr('fill', '#23334d')
+        .attr('font-size', 11)
+        .attr('font-weight', 600)
+        .attr('font-family', 'Noto Sans SC, sans-serif')
+        .text((node) => this.shortLabel(node.label, 15))
+
+      nodeG
+        .append('text')
+        .attr('x', 10)
+        .attr('y', 34)
+        .attr('fill', '#8b97ad')
+        .attr('font-size', 9)
+        .attr('font-family', 'IBM Plex Mono, monospace')
+        .text((node) => this.typeLabel(node.type))
+
+      nodeG
+        .append('circle')
+        .attr('cx', nodeWidth - 12)
+        .attr('cy', 12)
+        .attr('r', 4)
+        .attr('fill', (node) => this.healthColor(node.health))
+
+      const projectNames = layout.projects.map((project) => this.projectLabel(project)).join('、')
+      this.deploySubtitle = `当前项目：${projectNames} · 节点 ${layout.nodes.length} · 链路 ${edgeData.length}`
+      this.deployLegendItems = layers.map((layer) => ({ label: layer.label, color: layer.color }))
+    },
+    renderDataFlowDiagram() {
+      const svgEl = this.$refs.dataflowSvg
+      if (!svgEl) return
+      const wrap = svgEl.parentElement
+      const width = Math.max((wrap && wrap.clientWidth) || 0, 920)
+      const height = Math.max((wrap && wrap.clientHeight) || 0, 520)
+      const svg = d3.select(svgEl)
+      svg.selectAll('*').remove()
+      svg.attr('width', width).attr('height', height)
+
+      const { nodes, links } = this.getProjectScopedGraphData()
+      if (!nodes.length) {
+        svg
+          .append('text')
+          .attr('x', width / 2)
+          .attr('y', height / 2)
+          .attr('text-anchor', 'middle')
+          .attr('fill', '#8b97ad')
+          .attr('font-size', 14)
+          .attr('font-family', 'Noto Sans SC, sans-serif')
+          .text('暂无数据链路')
+        this.dataflowLegendItems = []
+        return
+      }
+
+      const layers = [
+        { label: '入口', types: ['user', 'domain'] },
+        { label: '接口', types: ['api'] },
+        { label: '服务', types: ['service'] },
+        { label: '中间件', types: ['middleware'] },
+        { label: '存储', types: ['db'] },
+        { label: '基础设施', types: ['compute', 'alarm'] }
+      ]
+      const typeToLayer = {}
+      layers.forEach((layer, index) => {
+        layer.types.forEach((type) => {
+          typeToLayer[type] = index
+        })
+      })
+
+      const layout = this.layoutNodesByProjectAndLayer(
+        nodes,
+        (type) => (typeToLayer[type] === undefined ? 2 : typeToLayer[type]),
+        layers.length,
+        width,
+        height
+      )
+      const nodeMap = new Map(layout.nodes.map((node) => [node.id, node]))
+      const edgeData = links
+        .map((link) => {
+          const sourceId = typeof link.source === 'object' ? link.source.id : link.source
+          const targetId = typeof link.target === 'object' ? link.target.id : link.target
+          return {
+            ...link,
+            source: nodeMap.get(sourceId),
+            target: nodeMap.get(targetId)
+          }
+        })
+        .filter((edge) => edge.source && edge.target)
+
+      const defs = svg.append('defs')
+      const relationDefs = [...this.relationTypes, { key: 'default', label: '默认' }]
+      relationDefs.forEach((rel) => {
+        const color = rel.key === 'default' ? '#2f8bff' : this.relationColor(rel.key)
+        const marker = defs
+          .append('marker')
+          .attr('id', `flow-arrow-${rel.key}`)
+          .attr('viewBox', '0 0 10 10')
+          .attr('refX', 9)
+          .attr('refY', 5)
+          .attr('markerWidth', 5)
+          .attr('markerHeight', 5)
+          .attr('orient', 'auto')
+        marker
+          .append('path')
+          .attr('d', 'M 0 0 L 10 5 L 0 10 z')
+          .attr('fill', color)
+      })
+
+      const bands = svg.append('g')
+      layout.projects.forEach((project, index) => {
+        const y = layout.metrics.topPad + index * (layout.metrics.laneHeight + layout.metrics.laneGap)
+        bands
+          .append('rect')
+          .attr('x', 18)
+          .attr('y', y)
+          .attr('width', width - 36)
+          .attr('height', layout.metrics.laneHeight)
+          .attr('rx', 10)
+          .attr('fill', index % 2 === 0 ? 'rgba(139,108,255,0.04)' : 'rgba(47,139,255,0.04)')
+          .attr('stroke', 'rgba(185,201,225,0.6)')
+        bands
+          .append('text')
+          .attr('x', 28)
+          .attr('y', y + 20)
+          .attr('fill', '#5d6b86')
+          .attr('font-size', 11)
+          .attr('font-family', 'IBM Plex Mono, monospace')
+          .text(this.projectLabel(project))
+      })
+
+      const edgeG = svg.append('g')
+      edgeG
+        .selectAll('path')
+        .data(edgeData)
+        .enter()
+        .append('path')
+        .attr('class', 'dataflow-edge')
+        .attr('d', (edge) => this.makeCurvePath(edge.source, edge.target))
+        .attr('fill', 'none')
+        .attr('stroke', (edge) => this.relationColor(edge.type))
+        .attr('stroke-width', 1.4)
+        .attr('stroke-opacity', 0.5)
+        .attr('marker-end', (edge) => {
+          const key = this.relationColors[edge.type] ? edge.type : 'default'
+          return `url(#flow-arrow-${key})`
+        })
+
+      const nodeW = 126
+      const nodeH = 30
+      const nodeG = svg.append('g').selectAll('g').data(layout.nodes).enter().append('g')
+      nodeG.attr('transform', (node) => `translate(${node.x - nodeW / 2}, ${node.y - nodeH / 2})`)
+      nodeG
+        .append('rect')
+        .attr('width', nodeW)
+        .attr('height', nodeH)
+        .attr('rx', 14)
+        .attr('fill', '#ffffff')
+        .attr('stroke', (node) => this.colorByType(node.type))
+        .attr('stroke-width', 1.2)
+      nodeG
+        .append('text')
+        .attr('x', nodeW / 2)
+        .attr('y', 19)
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#2d3a4a')
+        .attr('font-size', 11)
+        .attr('font-family', 'Noto Sans SC, sans-serif')
+        .text((node) => this.shortLabel(node.label, 13))
+
+      const flowProjectNames = layout.projects.map((project) => this.projectLabel(project)).join('、')
+      this.dataflowSubtitle = `当前项目：${flowProjectNames} · 节点 ${layout.nodes.length} · 链路 ${edgeData.length}`
+      this.dataflowLegendItems = this.relationTypes.map((rel) => ({
+        label: rel.label,
+        color: this.relationColor(rel.key)
+      }))
+    },
+    exportSkillSVG(refName, fileName) {
+      const svgEl = this.$refs[refName]
+      if (!svgEl) return
+      if (!svgEl.querySelector('*')) {
+        this.notify('warning', '当前图为空，无法导出')
+        return
+      }
+
+      const clone = svgEl.cloneNode(true)
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+      clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+      const source = new XMLSerializer().serializeToString(clone)
+      const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      this.notify('success', `已导出 ${fileName}`)
     },
 
     toggleAgg() {
@@ -1352,6 +2260,159 @@ body {
 .tt-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 3px; }
 .tt-key { color: var(--text3); }
 .tt-val { color: var(--text); font-family: 'IBM Plex Mono'; }
+
+.skill-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 2200;
+  background: var(--bg);
+  flex-direction: column;
+}
+
+.skill-overlay.visible {
+  display: flex;
+}
+
+.skill-topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border2);
+  flex-shrink: 0;
+}
+
+.skill-topbar-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  flex: 1;
+}
+
+.skill-topbar-sub {
+  font-size: 11px;
+  color: var(--text3);
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.skill-top-btn {
+  min-width: 88px;
+  justify-content: center;
+}
+
+.skill-canvas {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.skill-canvas svg {
+  width: 100%;
+  height: 100%;
+}
+
+.skill-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 7px 18px;
+  background: var(--bg1);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.skill-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text3);
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.skill-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.skill-legend-line {
+  width: 22px;
+  height: 2px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.dep-edge-flow {
+  animation: dep-flow 2.4s linear infinite;
+}
+
+.dataflow-edge {
+  stroke-dasharray: 6 6;
+  animation: data-flow 2s linear infinite;
+}
+
+@keyframes dep-flow {
+  from { stroke-dashoffset: 18; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes data-flow {
+  to { stroke-dashoffset: -24; }
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(19, 33, 57, 0.35);
+  backdrop-filter: blur(3px);
+  z-index: 2300;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-overlay.visible {
+  display: flex;
+}
+
+.modal-box {
+  width: min(560px, calc(100vw - 36px));
+  background: #ffffff;
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(15, 32, 60, 0.16);
+  padding: 20px 22px 18px;
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent2);
+  margin-bottom: 14px;
+}
+
+.modal-body {
+  font-size: 13px;
+  color: var(--text2);
+  line-height: 1.65;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.analysis-line + .analysis-line {
+  margin-top: 6px;
+}
+
+.modal-footer {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
 
 .ops-select .el-input__inner,
 .ops-input .el-input__inner {

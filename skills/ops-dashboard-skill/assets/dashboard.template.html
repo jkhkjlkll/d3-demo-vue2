@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>__DASHBOARD_TITLE__</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --line: #dbe4f2;
+      --text: #23334d;
+      --sub: #6f7e98;
+      --accent: #1a7bf2;
+      --ok: #00b37a;
+      --warn: #f0b429;
+      --err: #f05252;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: radial-gradient(circle at 18% 16%, #ecf3ff 0, #f4f7fb 45%, #f7f9fc 100%);
+      color: var(--text);
+    }
+    .wrap { max-width: 1240px; margin: 24px auto; padding: 0 16px; }
+    .header {
+      background: linear-gradient(120deg, #ffffff 0%, #f5f9ff 100%);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px 18px;
+      box-shadow: 0 12px 30px rgba(23, 46, 89, 0.08);
+    }
+    .title { font-size: 20px; font-weight: 700; }
+    .sub { color: var(--sub); font-size: 13px; margin-top: 6px; white-space: pre-wrap; }
+    .chips { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: #4d5e79;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+    .card .label { font-size: 12px; color: var(--sub); }
+    .card .value { margin-top: 6px; font-size: 24px; font-weight: 700; }
+
+    .main {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .panel h3 {
+      margin: 0 0 10px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #2a3a57;
+    }
+
+    .bars { display: flex; flex-direction: column; gap: 8px; }
+    .bar-row { display: grid; grid-template-columns: 110px 1fr 40px; gap: 8px; align-items: center; }
+    .bar-row .name { font-size: 12px; color: #4d5e79; }
+    .bar-track { height: 8px; background: #edf2fa; border-radius: 999px; overflow: hidden; }
+    .bar-fill { height: 8px; background: linear-gradient(90deg, #6ea9ff, #1a7bf2); border-radius: 999px; }
+    .bar-num { font-size: 12px; color: #5d6b86; text-align: right; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th, td {
+      border-bottom: 1px solid #edf1f8;
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f8fbff;
+      color: #4f607d;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .table-wrap { max-height: 320px; overflow: auto; border: 1px solid #edf1f8; border-radius: 10px; }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-size: 11px;
+    }
+    .ok { color: var(--ok); border-color: rgba(0, 179, 122, 0.3); background: rgba(0, 179, 122, 0.1); }
+    .warn { color: var(--warn); border-color: rgba(240, 180, 41, 0.35); background: rgba(240, 180, 41, 0.12); }
+    .err { color: var(--err); border-color: rgba(240, 82, 82, 0.35); background: rgba(240, 82, 82, 0.12); }
+
+    .footer {
+      margin-top: 12px;
+      color: #7a889f;
+      font-size: 12px;
+      padding-bottom: 16px;
+    }
+
+    @media (max-width: 960px) {
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .bar-row { grid-template-columns: 84px 1fr 32px; }
+    }
+    @media (max-width: 620px) {
+      .grid { grid-template-columns: 1fr; }
+      .wrap { margin: 12px auto; }
+      .header { border-radius: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div class="title" id="title"></div>
+      <div class="sub" id="sub"></div>
+      <div class="chips" id="chips"></div>
+    </div>
+
+    <div class="grid" id="cards"></div>
+
+    <div class="main">
+      <div class="panel">
+        <h3>实体类型分布</h3>
+        <div class="bars" id="bars"></div>
+      </div>
+
+      <div class="panel">
+        <h3>节点明细</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 180px;">ID</th>
+                <th>名称</th>
+                <th style="width: 90px;">类型</th>
+                <th style="width: 90px;">状态</th>
+                <th style="width: 90px;">项目</th>
+              </tr>
+            </thead>
+            <tbody id="nodesBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>关系明细</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 180px;">source</th>
+                <th style="width: 180px;">target</th>
+                <th style="width: 90px;">关系类型</th>
+              </tr>
+            </thead>
+            <tbody id="linksBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer" id="footer"></div>
+  </div>
+
+  <script>
+    const payload = __PAYLOAD_JSON__;
+
+    const healthClass = {
+      "正常": "ok",
+      "告警": "warn",
+      "异常": "err"
+    };
+
+    const healthLabel = {
+      all: "全部",
+      ok: "正常",
+      warn: "告警",
+      err: "异常"
+    };
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function renderHeader() {
+      document.getElementById("title").textContent = payload.title || "运维看板";
+      document.getElementById("sub").textContent = `自然语言请求: ${payload.prompt || "(empty)"}`;
+
+      const filters = payload.filters || {};
+      const chips = [
+        `项目: ${filters.project || "all"}`,
+        `实体: ${filters.entityType || "all"}`,
+        `关系: ${filters.relationType || "all"}`,
+        `状态: ${healthLabel[filters.health] || filters.health || "all"}`,
+        `关键词: ${filters.keyword || "(none)"}`
+      ];
+
+      document.getElementById("chips").innerHTML = chips.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("");
+    }
+
+    function renderCards() {
+      const summary = payload.summary || {};
+      const cards = [
+        ["节点数", summary.nodeCount || 0],
+        ["关系数", summary.linkCount || 0],
+        ["项目数", summary.projectCount || 0],
+        ["异常/告警", `${summary.errCount || 0}/${summary.warnCount || 0}`]
+      ];
+
+      document.getElementById("cards").innerHTML = cards
+        .map((item) => `<div class="card"><div class="label">${item[0]}</div><div class="value">${item[1]}</div></div>`)
+        .join("");
+    }
+
+    function renderBars() {
+      const map = (payload.summary && payload.summary.entityTypeCounts) || {};
+      const entries = Object.entries(map).sort((a, b) => b[1] - a[1]);
+      const maxVal = entries.length ? entries[0][1] : 1;
+
+      const html = entries
+        .map(([name, value]) => {
+          const width = Math.max(2, Math.round((value / maxVal) * 100));
+          return `
+            <div class="bar-row">
+              <div class="name">${escapeHtml(name)}</div>
+              <div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div>
+              <div class="bar-num">${value}</div>
+            </div>
+          `;
+        })
+        .join("");
+
+      document.getElementById("bars").innerHTML = html || `<div style="color:#7a889f;font-size:12px;">无可展示数据</div>`;
+    }
+
+    function renderNodeTable() {
+      const nodes = payload.nodes || [];
+      document.getElementById("nodesBody").innerHTML = nodes
+        .map((n) => {
+          const cls = healthClass[n.health] || "ok";
+          return `
+            <tr>
+              <td>${escapeHtml(n.id)}</td>
+              <td>${escapeHtml(n.label)}</td>
+              <td>${escapeHtml(n.type)}</td>
+              <td><span class="tag ${cls}">${escapeHtml(n.health)}</span></td>
+              <td>${escapeHtml(n.project || "-")}</td>
+            </tr>
+          `;
+        })
+        .join("");
+    }
+
+    function renderLinkTable() {
+      const links = payload.links || [];
+      document.getElementById("linksBody").innerHTML = links
+        .map((l) => `
+          <tr>
+            <td>${escapeHtml(l.source)}</td>
+            <td>${escapeHtml(l.target)}</td>
+            <td>${escapeHtml(l.type)}</td>
+          </tr>
+        `)
+        .join("");
+    }
+
+    function renderFooter() {
+      const s = payload.summary || {};
+      const meta = payload.meta || {};
+      document.getElementById("footer").textContent = `生成时间: ${new Date().toLocaleString()} | 数据来源: ${meta.source || "unknown"} | 原始节点: ${meta.rawNodeCount || 0} | 原始关系: ${meta.rawLinkCount || 0}`;
+    }
+
+    function renderAll() {
+      renderHeader();
+      renderCards();
+      renderBars();
+      renderNodeTable();
+      renderLinkTable();
+      renderFooter();
+    }
+
+    renderAll();
+  </script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+{
+  "status": "ok",
+  "data": {
+    "nodes": [
+      { "id": "user-p001", "label": "用户入口(P001)", "type": "user", "health": "正常", "project": "P001" },
+      { "id": "domain-p001", "label": "域名(P001)", "type": "domain", "health": "正常", "project": "P001" },
+      { "id": "api-order-p001", "label": "订单API(P001)", "type": "api", "health": "告警", "project": "P001" },
+      { "id": "svc-order-p001", "label": "订单服务(P001)", "type": "service", "health": "告警", "project": "P001" },
+      { "id": "redis-p001", "label": "Redis(P001)", "type": "middleware", "health": "正常", "project": "P001" },
+      { "id": "db-order-p001", "label": "订单库(P001)", "type": "db", "health": "正常", "project": "P001" },
+      { "id": "alarm-p001", "label": "交易告警(P001)", "type": "alarm", "health": "异常", "project": "P001" },
+
+      { "id": "user-p002", "label": "用户入口(P002)", "type": "user", "health": "正常", "project": "P002" },
+      { "id": "domain-p002", "label": "域名(P002)", "type": "domain", "health": "正常", "project": "P002" },
+      { "id": "api-risk-p002", "label": "风控API(P002)", "type": "api", "health": "告警", "project": "P002" },
+      { "id": "svc-risk-p002", "label": "风控服务(P002)", "type": "service", "health": "告警", "project": "P002" },
+      { "id": "kafka-p002", "label": "Kafka(P002)", "type": "middleware", "health": "正常", "project": "P002" },
+      { "id": "db-risk-p002", "label": "风控库(P002)", "type": "db", "health": "告警", "project": "P002" },
+      { "id": "alarm-p002", "label": "风控告警(P002)", "type": "alarm", "health": "告警", "project": "P002" }
+    ],
+    "links": [
+      { "source": "user-p001", "target": "domain-p001", "type": "access" },
+      { "source": "domain-p001", "target": "api-order-p001", "type": "call" },
+      { "source": "api-order-p001", "target": "svc-order-p001", "type": "call" },
+      { "source": "svc-order-p001", "target": "redis-p001", "type": "lb" },
+      { "source": "svc-order-p001", "target": "db-order-p001", "type": "host" },
+      { "source": "db-order-p001", "target": "alarm-p001", "type": "monitor" },
+
+      { "source": "user-p002", "target": "domain-p002", "type": "access" },
+      { "source": "domain-p002", "target": "api-risk-p002", "type": "call" },
+      { "source": "api-risk-p002", "target": "svc-risk-p002", "type": "call" },
+      { "source": "svc-risk-p002", "target": "kafka-p002", "type": "lb" },
+      { "source": "svc-risk-p002", "target": "db-risk-p002", "type": "host" },
+      { "source": "db-risk-p002", "target": "alarm-p002", "type": "monitor" },
+
+      { "source": "svc-order-p001", "target": "svc-risk-p002", "type": "call" }
+    ]
+  }
+}
