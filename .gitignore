@@ -24,3 +24,6 @@ pnpm-debug.log*
 
 # local mock html
 src/ops-knowledge-graph.html
+
+# skill runtime output
+skills/ops-dashboard-skill/runtime/
