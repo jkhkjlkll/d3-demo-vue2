@@ -8,9 +8,10 @@ import json
 import re
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
-from urllib.error import URLError, HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
@@ -23,6 +24,7 @@ HEALTH_ALIAS_TO_KEY = {
     "正常": "ok",
     "ok": "ok",
     "healthy": "ok",
+    "normal": "ok",
     "告警": "warn",
     "warn": "warn",
     "warning": "warn",
@@ -35,6 +37,120 @@ HEALTH_KEY_TO_DISPLAY = {
     "ok": "正常",
     "warn": "告警",
     "err": "异常",
+}
+
+ENTITY_ALIAS_TO_KEY = {
+    "api": "api",
+    "api接口": "api",
+    "接口": "api",
+    "service": "service",
+    "应用微服务": "service",
+    "服务": "service",
+    "微服务": "service",
+    "svc": "service",
+    "db": "db",
+    "database": "db",
+    "数据库": "db",
+    "middleware": "middleware",
+    "中间件": "middleware",
+    "compute": "compute",
+    "计算": "compute",
+    "计算资源": "compute",
+    "node": "compute",
+    "alarm": "alarm",
+    "告警": "alarm",
+    "user": "user",
+    "用户": "user",
+    "domain": "domain",
+    "域名": "domain",
+    "域名上下文根": "domain",
+}
+
+ENTITY_KEY_TO_DISPLAY = {
+    "api": "API接口",
+    "service": "应用微服务",
+    "db": "数据库",
+    "middleware": "中间件",
+    "compute": "计算资源",
+    "alarm": "告警",
+    "user": "用户",
+    "domain": "域名上下文根",
+}
+
+RELATION_ALIAS_TO_KEY = {
+    "access": "access",
+    "访问": "access",
+    "call": "call",
+    "调用": "call",
+    "lb": "lb",
+    "loadbalance": "lb",
+    "负载": "lb",
+    "负载均衡": "lb",
+    "host": "host",
+    "承载": "host",
+    "部署": "host",
+    "monitor": "monitor",
+    "监控": "monitor",
+}
+
+RELATION_KEY_TO_DISPLAY = {
+    "access": "访问",
+    "call": "调用",
+    "lb": "负载均衡",
+    "host": "承载",
+    "monitor": "监控",
+}
+
+ENTITY_COLOR_MAP = {
+    "用户": "#4db8ff",
+    "域名上下文根": "#00e5ff",
+    "API接口": "#ff8c33",
+    "应用微服务": "#00d68f",
+    "数据库": "#ffcc00",
+    "中间件": "#9d6fff",
+    "计算资源": "#7fa8cc",
+    "告警": "#ff4040",
+}
+
+RELATION_COLOR_MAP = {
+    "访问": "#4db8ff",
+    "调用": "#00d68f",
+    "负载均衡": "#9d6fff",
+    "承载": "#7fa8cc",
+    "监控": "#ff4040",
+}
+
+FALLBACK_COLORS = [
+    "#4db8ff",
+    "#00d68f",
+    "#9d6fff",
+    "#ff8c33",
+    "#00e5ff",
+    "#ffcc00",
+    "#7fa8cc",
+    "#ff6666",
+]
+
+PROJECT_COLOR_THEMES = [
+    {"color": "#1a9fff", "bgColor": "rgba(26,159,255,0.04)", "borderColor": "rgba(26,159,255,0.28)"},
+    {"color": "#9d6fff", "bgColor": "rgba(157,111,255,0.04)", "borderColor": "rgba(157,111,255,0.28)"},
+    {"color": "#00d68f", "bgColor": "rgba(0,214,143,0.04)", "borderColor": "rgba(0,214,143,0.28)"},
+    {"color": "#ff8c33", "bgColor": "rgba(255,140,51,0.04)", "borderColor": "rgba(255,140,51,0.28)"},
+    {"color": "#4db8ff", "bgColor": "rgba(77,184,255,0.04)", "borderColor": "rgba(77,184,255,0.28)"},
+    {"color": "#ff6b6b", "bgColor": "rgba(255,107,107,0.04)", "borderColor": "rgba(255,107,107,0.28)"},
+]
+
+DEFAULT_LAYOUT = {
+    "nodeWidth": 118,
+    "nodeHeight": 42,
+    "nodeVGap": 22,
+    "bandMarginV": 28,
+    "bandGap": 56,
+    "canvasTop": 54,
+    "colSpan": 168,
+    "marginLeft": 90,
+    "collapseThreshold": 20,
+    "skillCollapseThreshold": 10,
 }
 
 
@@ -79,50 +195,91 @@ def normalize_health_display(value: str) -> str:
     return HEALTH_KEY_TO_DISPLAY[key]
 
 
-def normalize_node(raw: Dict) -> Dict | None:
-    node_id = str(raw.get("id", "")).strip()
-    if not node_id:
-        return None
-
-    node = {
-        "id": node_id,
-        "label": str(raw.get("label", node_id)),
-        "type": str(raw.get("type", "unknown")).strip().lower() or "unknown",
-        "health": normalize_health_display(str(raw.get("health", "正常"))),
-        "project": str(raw.get("project", "UNKNOWN")).strip() or "UNKNOWN",
-    }
-    return node
-
-
-def normalize_link(raw: Dict) -> Dict | None:
-    source = str(raw.get("source", "")).strip()
-    target = str(raw.get("target", "")).strip()
-    if not source or not target:
-        return None
-    return {
-        "source": source,
-        "target": target,
-        "type": str(raw.get("type", "unknown")).strip().lower() or "unknown",
-    }
-
-
-def normalize_payload(payload: Dict) -> Dict[str, List[Dict]]:
-    data = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else payload
-    nodes_raw = data.get("nodes", []) if isinstance(data, dict) else []
-    links_raw = data.get("links", []) if isinstance(data, dict) else []
-
-    nodes = [n for n in (normalize_node(item or {}) for item in nodes_raw) if n]
-    node_ids = {n["id"] for n in nodes}
-    links = [l for l in (normalize_link(item or {}) for item in links_raw) if l and l["source"] in node_ids and l["target"] in node_ids]
-    return {"nodes": nodes, "links": links}
-
-
 def key_to_health(key: str) -> str:
     return HEALTH_KEY_TO_DISPLAY.get(key, "正常")
 
 
 def health_to_key(display: str) -> str:
     return HEALTH_ALIAS_TO_KEY.get(str(display).strip().lower(), "ok")
+
+
+def normalize_entity_key(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return "unknown"
+    return ENTITY_ALIAS_TO_KEY.get(raw.lower(), raw)
+
+
+def normalize_relation_key(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return "unknown"
+    return RELATION_ALIAS_TO_KEY.get(raw.lower(), raw)
+
+
+def key_to_entity_label(value: str) -> str:
+    key = str(value or "").strip()
+    return ENTITY_KEY_TO_DISPLAY.get(key, key or "未知")
+
+
+def key_to_relation_label(value: str) -> str:
+    key = str(value or "").strip()
+    return RELATION_KEY_TO_DISPLAY.get(key, key or "未知")
+
+
+def normalize_node(raw: Dict) -> Dict | None:
+    node_id = str(raw.get("id") or raw.get("entity_id") or "").strip()
+    if not node_id:
+        return None
+
+    node_type = normalize_entity_key(str(raw.get("type") or raw.get("entity_type") or "unknown"))
+    project = str(raw.get("project") or raw.get("project_id") or "UNKNOWN").strip() or "UNKNOWN"
+
+    return {
+        "id": node_id,
+        "label": str(raw.get("label") or raw.get("entity_name") or node_id),
+        "type": node_type,
+        "health": normalize_health_display(str(raw.get("health") or raw.get("health_status") or "正常")),
+        "project": project,
+    }
+
+
+def normalize_link(raw: Dict) -> Dict | None:
+    source = str(raw.get("source") or raw.get("source_entity_id") or "").strip()
+    target = str(raw.get("target") or raw.get("target_entity_id") or "").strip()
+    if not source or not target:
+        return None
+    return {
+        "source": source,
+        "target": target,
+        "type": normalize_relation_key(str(raw.get("type") or raw.get("relation_type") or "unknown")),
+        "health": normalize_health_display(str(raw.get("health") or raw.get("health_status") or "正常")),
+    }
+
+
+def normalize_payload(payload: Dict) -> Dict[str, List[Dict]]:
+    data = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else payload
+    nodes_raw = data.get("nodes", []) if isinstance(data, dict) else []
+    if not isinstance(nodes_raw, list):
+        nodes_raw = []
+
+    links_raw = []
+    if isinstance(data, dict):
+        raw_links = data.get("links")
+        raw_relations = data.get("relations")
+        if isinstance(raw_links, list):
+            links_raw = raw_links
+        elif isinstance(raw_relations, list):
+            links_raw = raw_relations
+
+    nodes = [n for n in (normalize_node(item or {}) for item in nodes_raw) if n]
+    node_ids = {n["id"] for n in nodes}
+    links = [
+        l
+        for l in (normalize_link(item or {}) for item in links_raw)
+        if l and l["source"] in node_ids and l["target"] in node_ids
+    ]
+    return {"nodes": nodes, "links": links}
 
 
 def infer_keyword(prompt: str) -> str:
@@ -239,7 +396,7 @@ def build_summary(nodes: List[Dict], links: List[Dict]) -> Dict:
         projects.add(node.get("project", "UNKNOWN"))
         h = health_to_key(node.get("health", "正常"))
         health_counter[h] = health_counter.get(h, 0) + 1
-        et = node.get("type", "unknown")
+        et = key_to_entity_label(node.get("type", "unknown"))
         entity_counter[et] = entity_counter.get(et, 0) + 1
 
     return {
@@ -253,10 +410,166 @@ def build_summary(nodes: List[Dict], links: List[Dict]) -> Dict:
     }
 
 
-def render_dashboard(template_path: Path, title: str, payload: Dict, output_path: Path) -> None:
+def pick_color(index: int, fallback_map: Dict[str, str], label: str) -> str:
+    return fallback_map.get(label, FALLBACK_COLORS[index % len(FALLBACK_COLORS)])
+
+
+def build_project_config(projects: List[str]) -> List[Dict]:
+    cfg = []
+    for idx, project_id in enumerate(projects):
+        theme = PROJECT_COLOR_THEMES[idx % len(PROJECT_COLOR_THEMES)]
+        cfg.append(
+            {
+                "id": project_id,
+                "name": project_id,
+                "color": theme["color"],
+                "bgColor": theme["bgColor"],
+                "borderColor": theme["borderColor"],
+            }
+        )
+    return cfg
+
+
+def order_labels(labels: Iterable[str], known_order: List[str]) -> List[str]:
+    known_index = {name: i for i, name in enumerate(known_order)}
+    return sorted(set(labels), key=lambda x: (known_index.get(x, 999), x))
+
+
+def build_type_config(labels: List[str], known_order: List[str], color_map: Dict[str, str]) -> List[Dict]:
+    ordered = order_labels(labels, known_order)
+    return [
+        {
+            "type": label,
+            "color": pick_color(idx, color_map, label),
+        }
+        for idx, label in enumerate(ordered)
+    ]
+
+
+def worst_health(*values: str) -> str:
+    level = {"正常": 0, "告警": 1, "异常": 2}
+    normalized = [normalize_health_display(v) for v in values if v]
+    if not normalized:
+        return "正常"
+    return max(normalized, key=lambda x: level.get(x, 0))
+
+
+def to_graph_data(nodes: List[Dict], links: List[Dict]) -> Dict[str, List[Dict]]:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    graph_nodes: List[Dict] = []
+    node_health: Dict[str, str] = {}
+    for node in nodes:
+        health_display = normalize_health_display(node.get("health", "正常"))
+        node_health[node["id"]] = health_display
+        graph_nodes.append(
+            {
+                "entity_id": node["id"],
+                "entity_name": node.get("label", node["id"]),
+                "entity_type": key_to_entity_label(node.get("type", "unknown")),
+                "project_id": node.get("project", "UNKNOWN"),
+                "health_status": health_display,
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+
+    graph_relations: List[Dict] = []
+    for idx, link in enumerate(links, start=1):
+        relation_health = worst_health(
+            node_health.get(link.get("source", ""), "正常"),
+            node_health.get(link.get("target", ""), "正常"),
+            link.get("health", "正常"),
+        )
+        graph_relations.append(
+            {
+                "relation_id": f"R-{idx:05d}",
+                "relation_type": key_to_relation_label(link.get("type", "unknown")),
+                "source_entity_id": link.get("source"),
+                "target_entity_id": link.get("target"),
+                "health_status": relation_health,
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+
+    return {"nodes": graph_nodes, "relations": graph_relations}
+
+
+def build_app_config(graph_data: Dict[str, List[Dict]]) -> Dict:
+    projects = sorted(
+        {
+            n.get("project_id")
+            for n in graph_data.get("nodes", [])
+            if n.get("project_id") and n.get("project_id") != "global"
+        }
+    )
+
+    entity_labels = [n.get("entity_type", "未知") for n in graph_data.get("nodes", []) if n.get("entity_type")]
+    relation_labels = [
+        r.get("relation_type", "未知")
+        for r in graph_data.get("relations", [])
+        if r.get("relation_type")
+    ]
+
+    known_entity_order = [
+        "用户",
+        "域名上下文根",
+        "API接口",
+        "应用微服务",
+        "数据库",
+        "中间件",
+        "计算资源",
+        "告警",
+    ]
+    known_relation_order = ["访问", "调用", "负载均衡", "承载", "监控"]
+
+    entity_types = build_type_config(entity_labels, known_entity_order, ENTITY_COLOR_MAP)
+    relation_types = build_type_config(relation_labels, known_relation_order, RELATION_COLOR_MAP)
+
+    if not entity_types:
+        entity_types = build_type_config(known_entity_order, known_entity_order, ENTITY_COLOR_MAP)
+    if not relation_types:
+        relation_types = build_type_config(known_relation_order, known_relation_order, RELATION_COLOR_MAP)
+
+    return {
+        "projects": build_project_config(projects),
+        "entityTypes": entity_types,
+        "relationTypes": relation_types,
+        "layout": DEFAULT_LAYOUT,
+        "healthStates": ["正常", "正常", "正常", "告警", "异常"],
+    }
+
+
+def to_ui_filters(filters: Dict[str, str]) -> Dict[str, str]:
+    return {
+        "project": filters.get("project", "all"),
+        "entityType": "all"
+        if filters.get("entityType", "all") == "all"
+        else key_to_entity_label(filters.get("entityType", "")),
+        "relationType": "all"
+        if filters.get("relationType", "all") == "all"
+        else key_to_relation_label(filters.get("relationType", "")),
+        "health": "all" if filters.get("health", "all") == "all" else key_to_health(filters.get("health", "ok")),
+        "keyword": filters.get("keyword", ""),
+    }
+
+
+def render_dashboard(
+    template_path: Path,
+    title: str,
+    graph_data: Dict,
+    app_config: Dict,
+    skill_state: Dict,
+    legacy_payload: Dict,
+    output_path: Path,
+) -> None:
     template = template_path.read_text(encoding="utf-8")
     rendered = template.replace("__DASHBOARD_TITLE__", title)
-    rendered = rendered.replace("__PAYLOAD_JSON__", json.dumps(payload, ensure_ascii=False))
+    rendered = rendered.replace("__GRAPH_DATA_JSON__", json.dumps(graph_data, ensure_ascii=False))
+    rendered = rendered.replace("__APP_CONFIG_JSON__", json.dumps(app_config, ensure_ascii=False))
+    rendered = rendered.replace("__SKILL_STATE_JSON__", json.dumps(skill_state, ensure_ascii=False))
+    rendered = rendered.replace("__PAYLOAD_JSON__", json.dumps(legacy_payload, ensure_ascii=False))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(rendered, encoding="utf-8")
 
@@ -266,7 +579,11 @@ def load_source_data(args: argparse.Namespace) -> Tuple[Dict[str, List[Dict]], B
         try:
             payload = fetch_backend_json(args.api_url, timeout=args.timeout)
             normalized = normalize_payload(payload)
-            return normalized, BuildContext(source=f"backend:{args.api_url}", raw_node_count=len(normalized["nodes"]), raw_link_count=len(normalized["links"]))
+            return normalized, BuildContext(
+                source=f"backend:{args.api_url}",
+                raw_node_count=len(normalized["nodes"]),
+                raw_link_count=len(normalized["links"]),
+            )
         except (URLError, HTTPError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
             if args.strict_backend:
                 raise RuntimeError(f"backend fetch failed: {exc}") from exc
@@ -275,7 +592,11 @@ def load_source_data(args: argparse.Namespace) -> Tuple[Dict[str, List[Dict]], B
     mock_path = Path(args.mock_file).expanduser().resolve()
     payload = read_json_file(mock_path)
     normalized = normalize_payload(payload)
-    return normalized, BuildContext(source=f"mock:{mock_path}", raw_node_count=len(normalized["nodes"]), raw_link_count=len(normalized["links"]))
+    return normalized, BuildContext(
+        source=f"mock:{mock_path}",
+        raw_node_count=len(normalized["nodes"]),
+        raw_link_count=len(normalized["links"]),
+    )
 
 
 def main() -> int:
@@ -287,18 +608,43 @@ def main() -> int:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 2
 
-    projects = sorted({n.get("project", "UNKNOWN") for n in normalized["nodes"]})
+    projects = sorted({n.get("project", "UNKNOWN") for n in normalized["nodes"] if n.get("project")})
     filters = infer_filters_from_prompt(args.prompt, projects)
-    nodes, links = apply_filters(normalized["nodes"], normalized["links"], filters)
-    summary = build_summary(nodes, links)
+    filtered_nodes, filtered_links = apply_filters(normalized["nodes"], normalized["links"], filters)
+    summary = build_summary(filtered_nodes, filtered_links)
+
+    graph_data = to_graph_data(normalized["nodes"], normalized["links"])
+    app_config = build_app_config(graph_data)
+    ui_filters = to_ui_filters(filters)
+
+    skill_state = {
+        "prompt": args.prompt,
+        "filters": ui_filters,
+        "summary": summary,
+        "meta": {
+            "source": ctx.source,
+            "rawNodeCount": ctx.raw_node_count,
+            "rawLinkCount": ctx.raw_link_count,
+        },
+    }
 
     payload = {
         "title": args.title,
         "prompt": args.prompt,
         "filters": filters,
+        "uiFilters": ui_filters,
         "summary": summary,
-        "nodes": nodes,
-        "links": links,
+        "filtered": {
+            "nodes": filtered_nodes,
+            "links": filtered_links,
+        },
+        "dataset": {
+            "nodes": normalized["nodes"],
+            "links": normalized["links"],
+        },
+        "graphData": graph_data,
+        "appConfig": app_config,
+        "skillState": skill_state,
         "meta": {
             "source": ctx.source,
             "rawNodeCount": ctx.raw_node_count,
@@ -310,7 +656,7 @@ def main() -> int:
     template_path = Path(args.template).expanduser().resolve()
 
     try:
-        render_dashboard(template_path, args.title, payload, output_path)
+        render_dashboard(template_path, args.title, graph_data, app_config, skill_state, payload, output_path)
     except Exception as exc:  # noqa: BLE001
         print(f"[ERROR] render failed: {exc}", file=sys.stderr)
         return 3
@@ -318,13 +664,19 @@ def main() -> int:
     meta_path = output_path.parent / f"{output_path.stem}.meta.json"
     meta_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print(json.dumps({
-        "ok": True,
-        "output": str(output_path),
-        "meta": str(meta_path),
-        "filters": filters,
-        "summary": summary,
-    }, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "output": str(output_path),
+                "meta": str(meta_path),
+                "filters": filters,
+                "uiFilters": ui_filters,
+                "summary": summary,
+            },
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

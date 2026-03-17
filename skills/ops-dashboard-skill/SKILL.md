@@ -10,6 +10,10 @@ Generate a portable dashboard by combining three steps:
 2. Convert natural language into filter conditions.
 3. Render filtered data into an HTML dashboard template.
 
+The generated HTML is self-contained and host-framework agnostic:
+- Do not depend on Vue/React/App.vue.
+- Support URL-driven control and `postMessage` control out of the box.
+
 ## Workflow
 
 ### Step 1: Choose data source
@@ -45,6 +49,11 @@ What the script does:
 - Render `assets/dashboard.template.html` with filtered data.
 - Write HTML and sidecar JSON metadata.
 
+The generated HTML includes:
+- `window.__OPS_DASHBOARD_SKILL__` runtime API
+- `window.postMessage` handlers for agent orchestration
+- URL parameter bootstrap support (`prompt`, `project`, `entityType`, `relationType`, `health`, `keyword`)
+
 ### Step 3: Open output
 
 Use any static server:
@@ -75,6 +84,28 @@ If no condition is recognized, keep defaults (`all`) and still render dashboard.
   - inferred filters
   - summary counts
   - source metadata
+
+## Runtime control protocol (for any host agent)
+
+Use either direct JS calls or `postMessage` after loading the generated HTML.
+
+### Direct JS API
+
+- `window.__OPS_DASHBOARD_SKILL__.run({ prompt, filters })`
+- `window.__OPS_DASHBOARD_SKILL__.applyPrompt(prompt, filters?)`
+- `window.__OPS_DASHBOARD_SKILL__.setFilters(filters)`
+- `window.__OPS_DASHBOARD_SKILL__.getState()`
+
+### postMessage API
+
+Request messages:
+- `opsgraph.run`
+- `opsgraph.applyPrompt`
+- `opsgraph.setFilters`
+- `opsgraph.getState`
+
+Response message:
+- `opsgraph.result`
 
 ## Customize this skill
 

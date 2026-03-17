@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>__DASHBOARD_TITLE__</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --line: #dbe4f2;
+      --text: #23334d;
+      --sub: #6f7e98;
+      --accent: #1a7bf2;
+      --ok: #00b37a;
+      --warn: #f0b429;
+      --err: #f05252;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: radial-gradient(circle at 18% 16%, #ecf3ff 0, #f4f7fb 45%, #f7f9fc 100%);
+      color: var(--text);
+    }
+    .wrap { max-width: 1240px; margin: 24px auto; padding: 0 16px; }
+    .header {
+      background: linear-gradient(120deg, #ffffff 0%, #f5f9ff 100%);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px 18px;
+      box-shadow: 0 12px 30px rgba(23, 46, 89, 0.08);
+    }
+    .title { font-size: 20px; font-weight: 700; }
+    .sub { color: var(--sub); font-size: 13px; margin-top: 6px; white-space: pre-wrap; }
+    .chips { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: #4d5e79;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+    .card .label { font-size: 12px; color: var(--sub); }
+    .card .value { margin-top: 6px; font-size: 24px; font-weight: 700; }
+
+    .main {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .panel h3 {
+      margin: 0 0 10px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #2a3a57;
+    }
+
+    .bars { display: flex; flex-direction: column; gap: 8px; }
+    .bar-row { display: grid; grid-template-columns: 110px 1fr 40px; gap: 8px; align-items: center; }
+    .bar-row .name { font-size: 12px; color: #4d5e79; }
+    .bar-track { height: 8px; background: #edf2fa; border-radius: 999px; overflow: hidden; }
+    .bar-fill { height: 8px; background: linear-gradient(90deg, #6ea9ff, #1a7bf2); border-radius: 999px; }
+    .bar-num { font-size: 12px; color: #5d6b86; text-align: right; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th, td {
+      border-bottom: 1px solid #edf1f8;
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f8fbff;
+      color: #4f607d;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .table-wrap { max-height: 320px; overflow: auto; border: 1px solid #edf1f8; border-radius: 10px; }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-size: 11px;
+    }
+    .ok { color: var(--ok); border-color: rgba(0, 179, 122, 0.3); background: rgba(0, 179, 122, 0.1); }
+    .warn { color: var(--warn); border-color: rgba(240, 180, 41, 0.35); background: rgba(240, 180, 41, 0.12); }
+    .err { color: var(--err); border-color: rgba(240, 82, 82, 0.35); background: rgba(240, 82, 82, 0.12); }
+
+    .empty-row {
+      color: #7a889f;
+      text-align: center;
+      padding: 16px !important;
+    }
+
+    .footer {
+      margin-top: 12px;
+      color: #7a889f;
+      font-size: 12px;
+      padding-bottom: 16px;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    @media (max-width: 960px) {
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .bar-row { grid-template-columns: 84px 1fr 32px; }
+    }
+    @media (max-width: 620px) {
+      .grid { grid-template-columns: 1fr; }
+      .wrap { margin: 12px auto; }
+      .header { border-radius: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div class="title" id="title"></div>
+      <div class="sub" id="sub"></div>
+      <div class="chips" id="chips"></div>
+    </div>
+
+    <div class="grid" id="cards"></div>
+
+    <div class="main">
+      <div class="panel">
+        <h3>实体类型分布</h3>
+        <div class="bars" id="bars"></div>
+      </div>
+
+      <div class="panel">
+        <h3>节点明细</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 180px;">ID</th>
+                <th>名称</th>
+                <th style="width: 90px;">类型</th>
+                <th style="width: 90px;">状态</th>
+                <th style="width: 90px;">项目</th>
+              </tr>
+            </thead>
+            <tbody id="nodesBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>关系明细</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 180px;">source</th>
+                <th style="width: 180px;">target</th>
+                <th style="width: 90px;">关系类型</th>
+              </tr>
+            </thead>
+            <tbody id="linksBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer" id="footer"></div>
+  </div>
+
+  <script>
+    const initialPayload = __PAYLOAD_JSON__;
+
+    const DEFAULT_FILTERS = {
+      project: "all",
+      entityType: "all",
+      relationType: "all",
+      health: "all",
+      keyword: ""
+    };
+
+    const HEALTH_DISPLAY_TO_KEY = {
+      "正常": "ok",
+      "ok": "ok",
+      "healthy": "ok",
+      "告警": "warn",
+      "warn": "warn",
+      "warning": "warn",
+      "异常": "err",
+      "err": "err",
+      "error": "err"
+    };
+
+    const HEALTH_KEY_TO_DISPLAY = {
+      all: "全部",
+      ok: "正常",
+      warn: "告警",
+      err: "异常"
+    };
+
+    const HEALTH_CLASS = {
+      "正常": "ok",
+      "告警": "warn",
+      "异常": "err"
+    };
+
+    const state = {
+      title: initialPayload.title || "运维看板",
+      prompt: initialPayload.prompt || "",
+      filters: { ...DEFAULT_FILTERS, ...(initialPayload.filters || {}) },
+      dataset: {
+        nodes: ((initialPayload.dataset && initialPayload.dataset.nodes) || []).slice(),
+        links: ((initialPayload.dataset && initialPayload.dataset.links) || []).slice()
+      },
+      view: {
+        nodes: (initialPayload.nodes || []).slice(),
+        links: (initialPayload.links || []).slice(),
+        summary: { ...(initialPayload.summary || {}) }
+      },
+      meta: { ...(initialPayload.meta || {}) }
+    };
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function normalizeHealthDisplay(value) {
+      const key = HEALTH_DISPLAY_TO_KEY[String(value || "").trim().toLowerCase()] || "ok";
+      return HEALTH_KEY_TO_DISPLAY[key] || "正常";
+    }
+
+    function healthToKey(display) {
+      return HEALTH_DISPLAY_TO_KEY[String(display || "").trim().toLowerCase()] || "ok";
+    }
+
+    function sanitizeFilterPatch(inputPatch) {
+      const patch = inputPatch || {};
+      const next = {};
+
+      const projects = new Set(state.dataset.nodes.map((n) => n.project).filter(Boolean));
+      const entityTypes = new Set(["all", "api", "service", "db", "middleware", "compute", "alarm", "user", "domain"]);
+      const relationTypes = new Set(["all", "access", "call", "lb", "host", "monitor"]);
+      const healthSet = new Set(["all", "ok", "warn", "err"]);
+
+      if (patch.project !== undefined && patch.project !== null) {
+        const raw = String(patch.project).trim();
+        const upper = raw.toUpperCase();
+        if (!raw || raw === "all" || raw === "全部") next.project = "all";
+        else if (projects.has(raw)) next.project = raw;
+        else if (projects.has(upper)) next.project = upper;
+      }
+
+      if (patch.entityType !== undefined && patch.entityType !== null) {
+        const raw = String(patch.entityType).trim().toLowerCase();
+        if (raw === "" || raw === "all" || raw === "全部") next.entityType = "all";
+        else if (entityTypes.has(raw)) next.entityType = raw;
+      }
+
+      if (patch.relationType !== undefined && patch.relationType !== null) {
+        const raw = String(patch.relationType).trim().toLowerCase();
+        if (raw === "" || raw === "all" || raw === "全部") next.relationType = "all";
+        else if (relationTypes.has(raw)) next.relationType = raw;
+      }
+
+      if (patch.health !== undefined && patch.health !== null) {
+        const raw = String(patch.health).trim().toLowerCase();
+        if (raw === "正常") next.health = "ok";
+        else if (raw === "告警") next.health = "warn";
+        else if (raw === "异常") next.health = "err";
+        else if (healthSet.has(raw)) next.health = raw;
+      }
+
+      if (patch.keyword !== undefined && patch.keyword !== null) {
+        next.keyword = String(patch.keyword).trim().slice(0, 80);
+      }
+
+      return next;
+    }
+
+    function inferKeyword(text) {
+      const explicit = text.match(/(?:关键词|关键字|搜索|查找)\s*[:：]?\s*([^\n,，;；]+)/i);
+      if (explicit && explicit[1]) return explicit[1].trim().slice(0, 80);
+      const quoted = text.match(/[\"“]([^\"”]{1,80})[\"”]/);
+      if (quoted && quoted[1]) return quoted[1].trim().slice(0, 80);
+      return "";
+    }
+
+    function inferFiltersFromPrompt(promptText) {
+      const filters = { ...DEFAULT_FILTERS };
+      const text = String(promptText || "").trim();
+      if (!text) return filters;
+
+      const low = text.toLowerCase();
+      const compact = low.replace(/\s+/g, "");
+
+      if (/全部项目|所有项目|跨项目|allprojects/.test(compact)) {
+        filters.project = "all";
+      } else {
+        const projects = Array.from(new Set(state.dataset.nodes.map((n) => String(n.project || "")).filter(Boolean)));
+        const upperText = text.toUpperCase();
+        for (const project of projects.sort()) {
+          if (project && upperText.includes(project.toUpperCase())) {
+            filters.project = project;
+            break;
+          }
+        }
+        if (filters.project === "all") {
+          if (text.includes("电商") || compact.includes("p1")) filters.project = "P001";
+          else if (text.includes("金融") || compact.includes("p2")) filters.project = "P002";
+        }
+      }
+
+      const entityHints = [
+        ["api", ["api", "接口"]],
+        ["service", ["服务", "微服务", "svc"]],
+        ["db", ["数据库", "db", "mysql", "postgres", "oracle"]],
+        ["middleware", ["中间件", "redis", "kafka", "mq", "es"]],
+        ["compute", ["计算", "节点", "k8s", "vm"]],
+        ["alarm", ["告警", "alarm"]],
+        ["user", ["用户"]],
+        ["domain", ["域名"]]
+      ];
+      for (const [key, hints] of entityHints) {
+        if (hints.some((h) => low.includes(h))) {
+          filters.entityType = key;
+          break;
+        }
+      }
+
+      const relationHints = [
+        ["access", ["访问"]],
+        ["call", ["调用"]],
+        ["lb", ["负载", "lb"]],
+        ["host", ["承载", "部署到", "运行在"]],
+        ["monitor", ["监控"]]
+      ];
+      for (const [key, hints] of relationHints) {
+        if (hints.some((h) => low.includes(h))) {
+          filters.relationType = key;
+          break;
+        }
+      }
+
+      if (/异常|故障|error|err/.test(low)) filters.health = "err";
+      else if (/告警|warn|warning/.test(low)) filters.health = "warn";
+      else if (/正常|healthy|\bok\b/.test(low)) filters.health = "ok";
+
+      filters.keyword = inferKeyword(text);
+      return filters;
+    }
+
+    function applyFilters(dataset, filters) {
+      const nodes = dataset.nodes || [];
+      const links = dataset.links || [];
+      const keyword = String(filters.keyword || "").trim().toLowerCase();
+
+      const filteredNodes = nodes.filter((node) => {
+        if (filters.project !== "all" && node.project !== filters.project) return false;
+        if (filters.entityType !== "all" && node.type !== filters.entityType) return false;
+        if (filters.health !== "all" && healthToKey(node.health) !== filters.health) return false;
+        if (keyword) {
+          const label = String(node.label || "").toLowerCase();
+          const id = String(node.id || "").toLowerCase();
+          if (!label.includes(keyword) && !id.includes(keyword)) return false;
+        }
+        return true;
+      });
+
+      const nodeIds = new Set(filteredNodes.map((n) => n.id));
+      const filteredLinks = links.filter((link) => {
+        if (!nodeIds.has(link.source) || !nodeIds.has(link.target)) return false;
+        if (filters.relationType !== "all" && link.type !== filters.relationType) return false;
+        return true;
+      });
+
+      return { nodes: filteredNodes, links: filteredLinks };
+    }
+
+    function buildSummary(nodes, links) {
+      const summary = {
+        nodeCount: nodes.length,
+        linkCount: links.length,
+        projectCount: 0,
+        okCount: 0,
+        warnCount: 0,
+        errCount: 0,
+        entityTypeCounts: {}
+      };
+
+      const projects = new Set();
+      for (const node of nodes) {
+        projects.add(node.project || "UNKNOWN");
+        const healthKey = healthToKey(node.health);
+        if (healthKey === "ok") summary.okCount += 1;
+        else if (healthKey === "warn") summary.warnCount += 1;
+        else summary.errCount += 1;
+
+        const type = node.type || "unknown";
+        summary.entityTypeCounts[type] = (summary.entityTypeCounts[type] || 0) + 1;
+      }
+      summary.projectCount = projects.size;
+      return summary;
+    }
+
+    function getSummaryText() {
+      const f = state.filters;
+      return `项目:${f.project} 实体:${f.entityType} 关系:${f.relationType} 状态:${f.health} 关键词:${f.keyword || "(none)"}`;
+    }
+
+    function applyView(nodes, links) {
+      state.view.nodes = nodes;
+      state.view.links = links;
+      state.view.summary = buildSummary(nodes, links);
+      renderAll();
+    }
+
+    function runWithPrompt(prompt, extraFilters) {
+      const inferred = inferFiltersFromPrompt(prompt || "");
+      const sanitizedExtra = sanitizeFilterPatch(extraFilters || {});
+      state.prompt = String(prompt || "");
+      state.filters = sanitizeFilterPatch({ ...DEFAULT_FILTERS, ...inferred, ...sanitizedExtra });
+      const next = applyFilters(state.dataset, state.filters);
+      applyView(next.nodes, next.links);
+      return { applied: true, summary: getSummaryText(), filters: { ...state.filters } };
+    }
+
+    function runWithFilters(filtersPatch) {
+      const sanitized = sanitizeFilterPatch(filtersPatch || {});
+      state.filters = sanitizeFilterPatch({ ...state.filters, ...sanitized });
+      const next = applyFilters(state.dataset, state.filters);
+      applyView(next.nodes, next.links);
+      return { applied: Object.keys(sanitized).length > 0, summary: getSummaryText(), filters: { ...state.filters } };
+    }
+
+    function applyRunPayload(payload) {
+      const data = payload && typeof payload === "object" ? payload : {};
+      if (data.prompt || data.text) {
+        return runWithPrompt(data.prompt || data.text, data.filters || {});
+      }
+      if (data.filters) {
+        return runWithFilters(data.filters);
+      }
+      return { applied: false, summary: getSummaryText(), filters: { ...state.filters } };
+    }
+
+    function renderHeader() {
+      document.getElementById("title").textContent = state.title || "运维看板";
+      document.getElementById("sub").textContent = `自然语言请求: ${state.prompt || "(empty)"}`;
+
+      const filters = state.filters || {};
+      const chips = [
+        `项目: ${filters.project || "all"}`,
+        `实体: ${filters.entityType || "all"}`,
+        `关系: ${filters.relationType || "all"}`,
+        `状态: ${HEALTH_KEY_TO_DISPLAY[filters.health] || filters.health || "all"}`,
+        `关键词: ${filters.keyword || "(none)"}`
+      ];
+      document.getElementById("chips").innerHTML = chips.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("");
+    }
+
+    function renderCards() {
+      const summary = state.view.summary || {};
+      const cards = [
+        ["节点数", summary.nodeCount || 0],
+        ["关系数", summary.linkCount || 0],
+        ["项目数", summary.projectCount || 0],
+        ["异常/告警", `${summary.errCount || 0}/${summary.warnCount || 0}`]
+      ];
+
+      document.getElementById("cards").innerHTML = cards
+        .map((item) => `<div class="card"><div class="label">${item[0]}</div><div class="value">${item[1]}</div></div>`)
+        .join("");
+    }
+
+    function renderBars() {
+      const map = (state.view.summary && state.view.summary.entityTypeCounts) || {};
+      const entries = Object.entries(map).sort((a, b) => b[1] - a[1]);
+      const maxVal = entries.length ? entries[0][1] : 1;
+
+      const html = entries
+        .map(([name, value]) => {
+          const width = Math.max(2, Math.round((value / maxVal) * 100));
+          return `
+            <div class="bar-row">
+              <div class="name">${escapeHtml(name)}</div>
+              <div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div>
+              <div class="bar-num">${value}</div>
+            </div>
+          `;
+        })
+        .join("");
+
+      document.getElementById("bars").innerHTML = html || `<div style="color:#7a889f;font-size:12px;">无可展示数据</div>`;
+    }
+
+    function renderNodeTable() {
+      const nodes = state.view.nodes || [];
+      if (!nodes.length) {
+        document.getElementById("nodesBody").innerHTML = `<tr><td colspan="5" class="empty-row">没有匹配节点</td></tr>`;
+        return;
+      }
+      document.getElementById("nodesBody").innerHTML = nodes
+        .map((n) => {
+          const health = normalizeHealthDisplay(n.health);
+          const cls = HEALTH_CLASS[health] || "ok";
+          return `
+            <tr>
+              <td>${escapeHtml(n.id)}</td>
+              <td>${escapeHtml(n.label)}</td>
+              <td>${escapeHtml(n.type)}</td>
+              <td><span class="tag ${cls}">${escapeHtml(health)}</span></td>
+              <td>${escapeHtml(n.project || "-")}</td>
+            </tr>
+          `;
+        })
+        .join("");
+    }
+
+    function renderLinkTable() {
+      const links = state.view.links || [];
+      if (!links.length) {
+        document.getElementById("linksBody").innerHTML = `<tr><td colspan="3" class="empty-row">没有匹配关系</td></tr>`;
+        return;
+      }
+      document.getElementById("linksBody").innerHTML = links
+        .map((l) => `
+          <tr>
+            <td>${escapeHtml(l.source)}</td>
+            <td>${escapeHtml(l.target)}</td>
+            <td>${escapeHtml(l.type)}</td>
+          </tr>
+        `)
+        .join("");
+    }
+
+    function renderFooter() {
+      const summary = state.view.summary || {};
+      const meta = state.meta || {};
+      document.getElementById("footer").textContent = [
+        `生成时间: ${new Date().toLocaleString()}`,
+        `数据来源: ${meta.source || "unknown"}`,
+        `原始节点: ${meta.rawNodeCount || 0}`,
+        `原始关系: ${meta.rawLinkCount || 0}`,
+        `当前节点: ${summary.nodeCount || 0}`,
+        `当前关系: ${summary.linkCount || 0}`
+      ].join(" | ");
+    }
+
+    function renderAll() {
+      renderHeader();
+      renderCards();
+      renderBars();
+      renderNodeTable();
+      renderLinkTable();
+      renderFooter();
+    }
+
+    function readUrlPayload() {
+      const params = new URLSearchParams(window.location.search || "");
+      const payload = { filters: {} };
+
+      const prompt = params.get("prompt") || params.get("q") || params.get("nl");
+      if (prompt) payload.prompt = prompt;
+
+      const project = params.get("project");
+      const entityType = params.get("entityType");
+      const relationType = params.get("relationType");
+      const health = params.get("health");
+      const keyword = params.get("keyword");
+
+      if (project) payload.filters.project = project;
+      if (entityType) payload.filters.entityType = entityType;
+      if (relationType) payload.filters.relationType = relationType;
+      if (health) payload.filters.health = health;
+      if (keyword) payload.filters.keyword = keyword;
+
+      if (!Object.keys(payload.filters).length) delete payload.filters;
+      return payload;
+    }
+
+    function handleMessage(event) {
+      const data = event && event.data;
+      if (!data || typeof data !== "object") return;
+      const type = String(data.type || data.action || "");
+      if (!type.startsWith("opsgraph.")) return;
+
+      let result = { applied: false, summary: getSummaryText(), filters: { ...state.filters } };
+      if (type === "opsgraph.run") {
+        result = applyRunPayload(data.payload || data);
+      } else if (type === "opsgraph.applyPrompt") {
+        result = runWithPrompt(data.prompt || data.text || "", data.filters || {});
+      } else if (type === "opsgraph.setFilters") {
+        result = runWithFilters(data.filters || data.payload || {});
+      } else if (type === "opsgraph.getState") {
+        result = {
+          applied: true,
+          summary: getSummaryText(),
+          filters: { ...state.filters },
+          counts: {
+            nodeCount: state.view.summary.nodeCount || 0,
+            linkCount: state.view.summary.linkCount || 0
+          }
+        };
+      }
+
+      if (event && event.source && typeof event.source.postMessage === "function") {
+        event.source.postMessage({
+          type: "opsgraph.result",
+          requestId: data.requestId || null,
+          ...result
+        }, "*");
+      }
+    }
+
+    window.__OPS_DASHBOARD_SKILL__ = {
+      run(payload) {
+        return applyRunPayload(payload || {});
+      },
+      applyPrompt(prompt, filters) {
+        return runWithPrompt(prompt || "", filters || {});
+      },
+      setFilters(filters) {
+        return runWithFilters(filters || {});
+      },
+      getState() {
+        return {
+          prompt: state.prompt,
+          filters: { ...state.filters },
+          summary: getSummaryText(),
+          counts: {
+            nodeCount: state.view.summary.nodeCount || 0,
+            linkCount: state.view.summary.linkCount || 0
+          }
+        };
+      }
+    };
+
+    const urlPayload = readUrlPayload();
+    if (urlPayload.prompt || urlPayload.filters) {
+      applyRunPayload(urlPayload);
+    } else {
+      const baseline = applyFilters(state.dataset, sanitizeFilterPatch(state.filters));
+      state.filters = sanitizeFilterPatch(state.filters);
+      applyView(baseline.nodes, baseline.links);
+    }
+
+    window.addEventListener("message", handleMessage);
+  </script>
+</body>
+</html>

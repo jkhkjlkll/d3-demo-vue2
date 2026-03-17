@@ -1,316 +1,4355 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>__DASHBOARD_TITLE__</title>
-  <style>
-    :root {
-      --bg: #f4f7fb;
-      --panel: #ffffff;
-      --line: #dbe4f2;
-      --text: #23334d;
-      --sub: #6f7e98;
-      --accent: #1a7bf2;
-      --ok: #00b37a;
-      --warn: #f0b429;
-      --err: #f05252;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
-      background: radial-gradient(circle at 18% 16%, #ecf3ff 0, #f4f7fb 45%, #f7f9fc 100%);
-      color: var(--text);
-    }
-    .wrap { max-width: 1240px; margin: 24px auto; padding: 0 16px; }
-    .header {
-      background: linear-gradient(120deg, #ffffff 0%, #f5f9ff 100%);
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 16px 18px;
-      box-shadow: 0 12px 30px rgba(23, 46, 89, 0.08);
-    }
-    .title { font-size: 20px; font-weight: 700; }
-    .sub { color: var(--sub); font-size: 13px; margin-top: 6px; white-space: pre-wrap; }
-    .chips { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
-    .chip {
-      border: 1px solid var(--line);
-      background: #fff;
-      border-radius: 999px;
-      padding: 4px 10px;
-      font-size: 12px;
-      color: #4d5e79;
-    }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>__DASHBOARD_TITLE__</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@300;400;500;700&display=swap');
 
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
-      margin-top: 14px;
-    }
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 12px 14px;
-    }
-    .card .label { font-size: 12px; color: var(--sub); }
-    .card .value { margin-top: 6px; font-size: 24px; font-weight: 700; }
+:root {
+  --bg: #060b14;
+  --bg1: #091120;
+  --bg2: #0c1628;
+  --panel: #0f1e33;
+  --panel2: #152540;
+  --panel3: #1a2d4a;
+  --border: #1e3554;
+  --border2: #234065;
+  --border3: #2a4d78;
+  --accent: #1a9fff;
+  --accent2: #4db8ff;
+  --accent3: #80d0ff;
+  --green: #00d68f;
+  --green2: #00ff9d;
+  --yellow: #ffcc00;
+  --yellow2: #ffe033;
+  --red: #ff4040;
+  --red2: #ff6666;
+  --purple: #9d6fff;
+  --orange: #ff8c33;
+  --cyan: #00e5ff;
+  --text: #cce4ff;
+  --text2: #7fa8cc;
+  --text3: #4a6e8a;
+  --text4: #2d4a60;
 
-    .main {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 12px;
-      margin-top: 12px;
-    }
-    .panel {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 12px;
-    }
-    .panel h3 {
-      margin: 0 0 10px;
-      font-size: 14px;
-      font-weight: 700;
-      color: #2a3a57;
-    }
+  /* Entity type colors */
+  --c-user: #4db8ff;
+  --c-svc: #00d68f;
+  --c-db: #ffcc00;
+  --c-mw: #9d6fff;
+  --c-api: #ff8c33;
+  --c-compute: #7fa8cc;
+  --c-alert: #ff4040;
+  --c-domain: #00e5ff;
 
-    .bars { display: flex; flex-direction: column; gap: 8px; }
-    .bar-row { display: grid; grid-template-columns: 110px 1fr 40px; gap: 8px; align-items: center; }
-    .bar-row .name { font-size: 12px; color: #4d5e79; }
-    .bar-track { height: 8px; background: #edf2fa; border-radius: 999px; overflow: hidden; }
-    .bar-fill { height: 8px; background: linear-gradient(90deg, #6ea9ff, #1a7bf2); border-radius: 999px; }
-    .bar-num { font-size: 12px; color: #5d6b86; text-align: right; }
+  /* Relation colors */
+  --r-access: #4db8ff;
+  --r-call: #00d68f;
+  --r-lb: #9d6fff;
+  --r-host: #7fa8cc;
+  --r-monitor: #ff4040;
+}
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
-    }
-    th, td {
-      border-bottom: 1px solid #edf1f8;
-      padding: 8px;
-      text-align: left;
-      vertical-align: top;
-    }
-    th {
-      background: #f8fbff;
-      color: #4f607d;
-      font-weight: 600;
-      position: sticky;
-      top: 0;
-      z-index: 1;
-    }
-    .table-wrap { max-height: 320px; overflow: auto; border: 1px solid #edf1f8; border-radius: 10px; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
 
-    .tag {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 999px;
-      border: 1px solid transparent;
-      font-size: 11px;
-    }
-    .ok { color: var(--ok); border-color: rgba(0, 179, 122, 0.3); background: rgba(0, 179, 122, 0.1); }
-    .warn { color: var(--warn); border-color: rgba(240, 180, 41, 0.35); background: rgba(240, 180, 41, 0.12); }
-    .err { color: var(--err); border-color: rgba(240, 82, 82, 0.35); background: rgba(240, 82, 82, 0.12); }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Noto Sans SC', sans-serif;
+  display: flex;
+  flex-direction: column;
+}
 
-    .footer {
-      margin-top: 12px;
-      color: #7a889f;
-      font-size: 12px;
-      padding-bottom: 16px;
-    }
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--bg2); }
+::-webkit-scrollbar-thumb { background: var(--border3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
-    @media (max-width: 960px) {
-      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .bar-row { grid-template-columns: 84px 1fr 32px; }
-    }
-    @media (max-width: 620px) {
-      .grid { grid-template-columns: 1fr; }
-      .wrap { margin: 12px auto; }
-      .header { border-radius: 10px; }
-    }
-  </style>
+/* ===== HEADER ===== */
+.header {
+  height: 48px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 100;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent2);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.logo-icon {
+  width: 28px; height: 28px;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+}
+.header-divider { width: 1px; height: 20px; background: var(--border2); }
+.header-subtitle { font-size: 12px; color: var(--text3); font-family: 'IBM Plex Mono'; }
+.header-badges { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+.badge {
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: 'IBM Plex Mono';
+  letter-spacing: 0.02em;
+}
+.badge-blue { background: rgba(26,159,255,0.12); color: var(--accent2); border: 1px solid rgba(26,159,255,0.25); }
+.badge-green { background: rgba(0,214,143,0.12); color: var(--green); border: 1px solid rgba(0,214,143,0.25); }
+.badge-yellow { background: rgba(255,204,0,0.12); color: var(--yellow); border: 1px solid rgba(255,204,0,0.25); }
+.badge-red { background: rgba(255,64,64,0.12); color: var(--red); border: 1px solid rgba(255,64,64,0.25); }
+.pulse-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+@keyframes pulse-glow {
+  0%,100% { opacity: 1; box-shadow: 0 0 6px var(--green); }
+  50% { opacity: 0.5; box-shadow: 0 0 2px var(--green); }
+}
+
+/* ===== TOOLBAR ===== */
+.toolbar {
+  height: 46px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 10px;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.toolbar::-webkit-scrollbar { height: 0; }
+.tb-group { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.tb-label { font-size: 11px; color: var(--text3); white-space: nowrap; }
+.tb-sep { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
+.tb-spacer { flex: 1; }
+
+select, .search-input {
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'Noto Sans SC', sans-serif;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  height: 28px;
+}
+select:focus, .search-input:focus { border-color: var(--accent); background: var(--panel2); }
+select option { background: var(--panel2); color: var(--text); }
+
+.search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.search-icon {
+  position: absolute;
+  left: 8px;
+  color: var(--text3);
+  font-size: 11px;
+  pointer-events: none;
+}
+.search-input { padding-left: 24px; width: 160px; }
+
+.btn {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border2);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: 'Noto Sans SC', sans-serif;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.btn-default { background: var(--panel); color: var(--text2); }
+.btn-default:hover { background: var(--panel2); color: var(--text); border-color: var(--accent); }
+.btn-primary { background: rgba(26,159,255,0.15); color: var(--accent2); border-color: rgba(26,159,255,0.35); }
+.btn-primary:hover { background: rgba(26,159,255,0.25); }
+.btn-danger { background: rgba(255,64,64,0.12); color: var(--red2); border-color: rgba(255,64,64,0.3); }
+.btn-danger:hover { background: rgba(255,64,64,0.2); }
+.btn-active { background: rgba(0,214,143,0.12); color: var(--green); border-color: rgba(0,214,143,0.3); }
+
+/* ===== MAIN LAYOUT ===== */
+.main { display: flex; flex: 1; overflow: hidden; position: relative; }
+
+/* ===== LEFT SIDEBAR ===== */
+.sidebar {
+  width: 250px;
+  flex-shrink: 0;
+  background: var(--bg1);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sidebar-header {
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sidebar-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-family: 'IBM Plex Mono';
+}
+.sidebar-count {
+  font-size: 11px;
+  color: var(--text3);
+  font-family: 'IBM Plex Mono';
+}
+.sidebar-body { flex: 1; overflow-y: auto; }
+
+/* Entity type group */
+.etype-group { border-bottom: 1px solid var(--border); }
+.etype-header {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+  user-select: none;
+}
+.etype-header:hover { background: var(--panel); }
+.etype-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.etype-name { font-size: 12px; flex: 1; }
+.etype-num { font-size: 10px; font-family: 'IBM Plex Mono'; color: var(--text3); }
+.etype-arrow { font-size: 9px; color: var(--text4); transition: transform 0.18s; }
+.etype-arrow.open { transform: rotate(90deg); }
+
+.entity-list { display: none; padding: 2px 0; }
+.entity-list.open { display: block; }
+
+.entity-row {
+  padding: 5px 12px 5px 28px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  transition: background 0.12s;
+  font-size: 11px;
+  color: var(--text2);
+}
+.entity-row:hover { background: rgba(26,159,255,0.06); color: var(--text); }
+.entity-row.active { background: rgba(26,159,255,0.1); color: var(--accent2); }
+
+.health-indicator {
+  width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+}
+.hi-ok { background: var(--green); box-shadow: 0 0 4px var(--green); }
+.hi-warn { background: var(--yellow); box-shadow: 0 0 4px var(--yellow); }
+.hi-err { background: var(--red); box-shadow: 0 0 4px var(--red); }
+
+.entity-row-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entity-row-proj { font-size: 9px; color: var(--text4); font-family: 'IBM Plex Mono'; flex-shrink: 0; }
+
+/* ===== CANVAS AREA ===== */
+.canvas-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg);
+}
+.canvas-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: 
+    radial-gradient(circle 600px at 15% 30%, rgba(26,159,255,0.03) 0%, transparent 70%),
+    radial-gradient(circle 400px at 85% 70%, rgba(157,111,255,0.025) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Grid dots background */
+.canvas-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(30,53,84,0.8) 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events: none;
+  opacity: 0.4;
+}
+
+#graph-svg { width: 100%; height: 100%; display: block; }
+
+/* Canvas controls */
+.canvas-controls {
+  position: absolute;
+  bottom: 18px;
+  right: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  z-index: 10;
+}
+.cc-btn {
+  width: 30px; height: 30px;
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  color: var(--text2);
+  font-size: 15px;
+  font-weight: 600;
+  transition: all 0.12s;
+  user-select: none;
+}
+.cc-btn:hover { background: var(--panel2); color: var(--accent2); border-color: var(--accent); }
+
+/* Minimap */
+.minimap-wrap {
+  position: absolute;
+  bottom: 18px;
+  left: 260px;
+  width: 168px;
+  height: 106px;
+  background: rgba(9,17,32,0.9);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  overflow: hidden;
+  z-index: 10;
+  backdrop-filter: blur(4px);
+}
+.minimap-label {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  font-size: 9px;
+  font-family: 'IBM Plex Mono';
+  color: var(--text4);
+  pointer-events: none;
+  z-index: 1;
+}
+#minimap-svg { width: 100%; height: 100%; }
+
+/* Stats bar */
+.stats-bar {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 1px;
+  background: var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border2);
+  z-index: 10;
+}
+.stat-item {
+  padding: 5px 14px;
+  background: var(--panel);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'IBM Plex Mono';
+}
+.stat-label { color: var(--text3); }
+.stat-val { color: var(--text); font-weight: 500; }
+
+/* ===== RIGHT DETAIL PANEL ===== */
+.detail-panel {
+  width: 0;
+  flex-shrink: 0;
+  background: var(--bg1);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.22s cubic-bezier(0.4,0,0.2,1);
+}
+.detail-panel.open { width: 280px; }
+.detail-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.detail-title-bar { display: flex; align-items: center; gap: 7px; }
+.detail-type-dot { width: 10px; height: 10px; border-radius: 2px; }
+.detail-title-text { font-size: 13px; font-weight: 500; }
+.detail-close { cursor: pointer; color: var(--text3); font-size: 14px; transition: color 0.12s; }
+.detail-close:hover { color: var(--text); }
+.detail-body { flex: 1; overflow-y: auto; padding: 0; }
+.detail-section { border-bottom: 1px solid var(--border); }
+.detail-section-title {
+  padding: 8px 14px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text3);
+  font-family: 'IBM Plex Mono';
+  background: rgba(0,0,0,0.15);
+}
+.detail-row {
+  display: flex;
+  align-items: flex-start;
+  padding: 5px 14px;
+  gap: 8px;
+  border-bottom: 1px solid rgba(30,53,84,0.5);
+}
+.detail-row:last-child { border-bottom: none; }
+.detail-key { font-size: 11px; color: var(--text3); min-width: 80px; flex-shrink: 0; padding-top: 1px; }
+.detail-val { font-size: 11px; color: var(--text); font-family: 'IBM Plex Mono'; word-break: break-all; }
+.detail-val.ok { color: var(--green); }
+.detail-val.warn { color: var(--yellow); }
+.detail-val.err { color: var(--red); }
+
+/* ===== TOOLTIP ===== */
+.tooltip-el {
+  position: fixed;
+  background: var(--panel2);
+  border: 1px solid var(--border3);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 11px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+  z-index: 9999;
+  max-width: 240px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(26,159,255,0.08);
+  backdrop-filter: blur(8px);
+}
+.tooltip-el.visible { opacity: 1; }
+.tt-name { font-weight: 600; color: var(--accent2); margin-bottom: 7px; font-size: 12px; }
+.tt-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 3px; }
+.tt-key { color: var(--text3); }
+.tt-val { color: var(--text); font-family: 'IBM Plex Mono'; }
+
+/* ===== LEGEND ===== */
+.legend-wrap {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: rgba(9,17,32,0.88);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 10px 12px;
+  z-index: 10;
+  backdrop-filter: blur(6px);
+}
+.legend-title { font-size: 9px; font-family: 'IBM Plex Mono'; color: var(--text3); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 7px; }
+.legend-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.legend-swatch { width: 12px; height: 8px; border-radius: 2px; }
+.legend-label { font-size: 11px; color: var(--text2); }
+.legend-sep { height: 1px; background: var(--border); margin: 6px 0; }
+
+/* ===== STATUS BAR ===== */
+.statusbar {
+  height: 24px;
+  background: var(--bg1);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 18px;
+  flex-shrink: 0;
+}
+.sb-item { display: flex; align-items: center; gap: 5px; font-size: 10px; font-family: 'IBM Plex Mono'; color: var(--text3); }
+.sb-val { color: var(--text2); }
+.sb-spacer { flex: 1; }
+.sb-time { color: var(--text4); }
+
+/* ===== D3 NODE STYLES ===== */
+.node-g { cursor: pointer; }
+.node-shadow { filter: drop-shadow(0 3px 6px rgba(0,0,0,0.5)); }
+.node-body {
+  rx: 5;
+  ry: 5;
+  transition: filter 0.2s;
+}
+.node-g:hover .node-body { filter: brightness(1.25); }
+.node-g.selected .node-body { filter: brightness(1.3) drop-shadow(0 0 10px currentColor); }
+.node-g.dimmed { opacity: 0.18; }
+
+.edge-path { fill: none; transition: stroke-opacity 0.2s; }
+.edge-path.dimmed { stroke-opacity: 0.05 !important; }
+.edge-path.highlighted { stroke-opacity: 0.9 !important; stroke-width: 1.8px !important; }
+/* ── AGGREGATE MODE ──────────────────────────────────── */
+.agg-node-g { cursor: pointer; }
+.agg-node-g:hover .agg-body { filter: brightness(1.3); }
+.agg-mode-active #agg-toggle-btn { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* Aggregate edge label pill */
+.agg-edge-pill { pointer-events: none; }
+
+/* ── ENTITY LIST DRAWER (slides in from left over sidebar) ───────────── */
+.entity-drawer {
+  position: absolute;
+  top: 0; left: 0;
+  width: 260px; height: 100%;
+  background: var(--panel);
+  border-right: 1px solid var(--border3);
+  z-index: 500;
+  display: flex; flex-direction: column;
+  transform: translateX(-100%);
+  transition: transform 0.25s ease;
+  box-shadow: 4px 0 20px rgba(0,0,0,0.4);
+}
+.entity-drawer.open { transform: translateX(0); }
+.entity-drawer-header {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
+.entity-drawer-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.entity-drawer-title { font-size: 13px; font-weight: 600; color: var(--text); flex: 1; }
+.entity-drawer-count { font-size: 11px; color: var(--text3); }
+.entity-drawer-close {
+  width:22px; height:22px; display:flex; align-items:center; justify-content:center;
+  cursor:pointer; color:var(--text3); font-size:14px; border-radius:4px;
+  transition: background 0.15s, color 0.15s;
+}
+.entity-drawer-close:hover { background:rgba(255,64,64,0.15); color:var(--red); }
+.entity-drawer-body { flex:1; overflow-y:auto; padding:8px 0; }
+.drawer-entity-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 14px; cursor: pointer;
+  transition: background 0.12s;
+  border-left: 3px solid transparent;
+}
+.drawer-entity-row:hover { background: rgba(26,159,255,0.08); }
+.drawer-entity-row.active { background: rgba(26,159,255,0.12); border-left-color: var(--accent); }
+.drawer-entity-row .der-name { font-size: 12px; color: var(--text); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.drawer-entity-row .der-proj { font-size: 10px; color: var(--text3); font-family: 'IBM Plex Mono', monospace; flex-shrink:0; }
+.drawer-entity-row .der-health { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.der-health.ok { background: var(--green); }
+.der-health.warn { background: var(--yellow); }
+.der-health.err { background: var(--red); }
+.drawer-rel-section { padding: 6px 14px 4px; border-top: 1px solid var(--border); margin-top: 4px; }
+.drawer-rel-title { font-size: 10px; color: var(--text3); font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.05em; margin-bottom: 6px; }
+.drawer-rel-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 0; cursor: pointer; font-size: 11px; color: var(--text2);
+  transition: color 0.12s;
+}
+.drawer-rel-row:hover { color: var(--text); }
+.drawer-rel-badge { font-size: 10px; padding: 1px 6px; border-radius: 3px; font-family: 'IBM Plex Mono', monospace; flex-shrink:0; }
+
+/* Subgraph mode breadcrumb */
+.breadcrumb-bar {
+  display: none; align-items: center; gap: 6px;
+  padding: 5px 14px; background: rgba(26,159,255,0.07);
+  border-bottom: 1px solid var(--border); font-size: 11px; color: var(--text3);
+  flex-shrink: 0;
+}
+.breadcrumb-bar.visible { display: flex; }
+.breadcrumb-link { color: var(--accent); cursor: pointer; text-decoration: underline; }
+.breadcrumb-link:hover { color: var(--accent2); }
+/* All edges flow — both normal and cross-project */
+/* Collapsed group node in normal view */
+.coll-node-g { cursor:pointer; }
+.coll-node-g:hover .coll-body { filter:brightness(1.25); }
+
+
+/* ══════════════════════════════════════════════════════════════
+   SKILL PANELS — 部署架构图 & 数据链路图
+   Full-screen overlay with its own SVG canvas
+   ══════════════════════════════════════════════════════════════ */
+.skill-overlay {
+  display: none;
+  position: fixed; inset: 0; z-index: 2000;
+  background: var(--bg);
+  flex-direction: column;
+}
+.skill-overlay.visible { display: flex; }
+
+.skill-topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 18px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border3);
+  flex-shrink: 0;
+}
+.skill-topbar-title {
+  font-size: 14px; font-weight: 700; color: var(--text);
+  font-family: 'Noto Sans SC', sans-serif; flex: 1;
+}
+.skill-topbar-sub {
+  font-size: 11px; color: var(--text3);
+  font-family: 'IBM Plex Mono', monospace;
+}
+.skill-topbar .btn { flex-shrink: 0; }
+
+.skill-canvas {
+  flex: 1; overflow: hidden; position: relative;
+}
+.skill-canvas svg { width: 100%; height: 100%; }
+
+/* Legend strip at bottom */
+.skill-legend {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 7px 18px;
+  background: var(--bg1);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.skill-legend-item {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 10px; color: var(--text3);
+  font-family: 'IBM Plex Mono', monospace;
+}
+.skill-legend-dot {
+  width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0;
+}
+.skill-legend-line {
+  width: 22px; height: 2px; flex-shrink: 0; border-radius: 1px;
+}
+.edge-path { animation: edge-flow 2.4s linear infinite; }
+.dep-edge-flow { animation: dep-flow 2s linear infinite; }
+@keyframes dep-flow { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
+@keyframes edge-flow { to { stroke-dashoffset: -24; } }
+/* Health-based dash patterns set inline; flowing animation works on top */
+
+.project-bg { pointer-events: none; }
+
+/* ===== CONTEXT MENU ===== */
+.ctx-menu {
+  position: fixed;
+  background: var(--panel2);
+  border: 1px solid var(--border3);
+  border-radius: 6px;
+  padding: 4px 0;
+  z-index: 9990;
+  min-width: 150px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  display: none;
+}
+.ctx-menu.visible { display: block; }
+.ctx-item {
+  padding: 7px 14px;
+  font-size: 12px;
+  color: var(--text2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  transition: background 0.1s;
+}
+.ctx-item:hover { background: rgba(26,159,255,0.1); color: var(--text); }
+.ctx-sep { height: 1px; background: var(--border); margin: 3px 0; }
+
+/* ===== MODAL ===== */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  z-index: 9900;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.visible { display: flex; }
+.modal-box {
+  background: var(--panel);
+  border: 1px solid var(--border3);
+  border-radius: 10px;
+  padding: 24px 28px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+}
+.modal-title { font-size: 16px; font-weight: 600; color: var(--accent2); margin-bottom: 16px; }
+.modal-body { font-size: 13px; color: var(--text2); line-height: 1.7; }
+.modal-footer { margin-top: 20px; display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ===== NOTIFICATION ===== */
+.notif {
+  position: fixed;
+  top: 60px;
+  right: 14px;
+  background: var(--panel2);
+  border: 1px solid var(--green);
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--green);
+  z-index: 9999;
+  opacity: 0;
+  transform: translateX(20px);
+  transition: all 0.25s;
+  pointer-events: none;
+  max-width: 260px;
+}
+.notif.show { opacity: 1; transform: translateX(0); }
+.notif.warn { color: var(--yellow); border-color: var(--yellow); }
+.notif.err { color: var(--red); border-color: var(--red); }
+
+/* Project multi-select styling */
+#proj-select { height: 28px; min-width: 120px; }
+</style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="header">
-      <div class="title" id="title"></div>
-      <div class="sub" id="sub"></div>
-      <div class="chips" id="chips"></div>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="logo">
+    <div class="logo-icon">⬡</div>
+    OpsGraph
+  </div>
+  <div class="header-divider"></div>
+  <div class="header-subtitle">运维知识图谱 v3.0</div>
+  <div class="header-badges">
+    <div class="pulse-dot"></div>
+    <span class="badge badge-green" id="hb-status">实时同步</span>
+    <span class="badge badge-blue" id="hb-nodes">节点 0</span>
+    <span class="badge badge-blue" id="hb-edges">关系 0</span>
+    <span class="badge badge-yellow" id="hb-warn" style="display:none">告警 0</span>
+    <span class="badge badge-red" id="hb-err" style="display:none">异常 0</span>
+  </div>
+</div>
+
+<!-- TOOLBAR -->
+<div class="toolbar">
+  <div class="tb-group">
+    <span class="tb-label">项目</span>
+    <select id="proj-select" multiple size="1" title="按住Ctrl多选">
+      <option value="all" selected>全部项目</option>
+    </select>
+  </div>
+  <div class="tb-sep"></div>
+  <div class="tb-group">
+    <span class="tb-label">实体类型</span>
+    <select id="etype-filter">
+      <option value="all">全部类型</option>
+    </select>
+  </div>
+  <div class="tb-group">
+    <span class="tb-label">关系类型</span>
+    <select id="rtype-filter">
+      <option value="all">全部关系</option>
+    </select>
+  </div>
+  <div class="tb-group">
+    <span class="tb-label">健康状态</span>
+    <select id="health-filter">
+      <option value="all">全部状态</option>
+      <option value="正常">✓ 正常</option>
+      <option value="告警">⚠ 告警</option>
+      <option value="异常">✗ 异常</option>
+    </select>
+  </div>
+  <div class="tb-sep"></div>
+  <div class="tb-group">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="search-inp" class="search-input" placeholder="搜索实体名称...">
     </div>
+  </div>
+  <div class="tb-spacer"></div>
+  <div class="tb-group">
+    <button class="btn btn-default" id="agg-toggle-btn" onclick="toggleAggMode()">⊞ 聚合视图</button>
+    <button class="btn btn-default" onclick="fitView()">⊞ 适应视图</button>
+    <button class="btn btn-primary" id="refresh-btn" onclick="doRefresh()">↻ 刷新数据</button>
+    <button class="btn btn-default" onclick="showAnalysis()">📊 分析报告</button>
+    <button class="btn btn-default" onclick="showDeployDiagram()">🏗 部署架构图</button>
+    <button class="btn btn-default" onclick="showDataFlowDiagram()">🔀 数据链路图</button>
+    <button class="btn btn-default" id="collapse-all-btn" onclick="collapseAllGroups()" title="收起所有已展开的聚合节点">⊟ 收起全部</button>
+  </div>
+</div>
 
-    <div class="grid" id="cards"></div>
-
-    <div class="main">
-      <div class="panel">
-        <h3>实体类型分布</h3>
-        <div class="bars" id="bars"></div>
-      </div>
-
-      <div class="panel">
-        <h3>节点明细</h3>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th style="width: 180px;">ID</th>
-                <th>名称</th>
-                <th style="width: 90px;">类型</th>
-                <th style="width: 90px;">状态</th>
-                <th style="width: 90px;">项目</th>
-              </tr>
-            </thead>
-            <tbody id="nodesBody"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="panel">
-        <h3>关系明细</h3>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th style="width: 180px;">source</th>
-                <th style="width: 180px;">target</th>
-                <th style="width: 90px;">关系类型</th>
-              </tr>
-            </thead>
-            <tbody id="linksBody"></tbody>
-          </table>
-        </div>
-      </div>
+<!-- MAIN -->
+<div class="main">
+  <!-- LEFT SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-title">实体列表</span>
+      <span class="sidebar-count" id="sidebar-count">0 个实体</span>
     </div>
-
-    <div class="footer" id="footer"></div>
+    <div class="sidebar-body" id="sidebar-body"></div>
   </div>
 
-  <script>
-    const payload = __PAYLOAD_JSON__;
+  <!-- ENTITY DRAWER (aggregate mode: entity list for a type) -->
+  <div class="entity-drawer" id="entity-drawer">
+    <div class="entity-drawer-header">
+      <div class="entity-drawer-dot" id="ed-dot"></div>
+      <span class="entity-drawer-title" id="ed-title">实体列表</span>
+      <span class="entity-drawer-count" id="ed-count"></span>
+      <div class="entity-drawer-close" onclick="closeEntityDrawer()">✕</div>
+    </div>
+    <!-- Breadcrumb for subgraph mode -->
+    <div class="breadcrumb-bar" id="breadcrumb-bar">
+      <span class="breadcrumb-link" onclick="exitSubgraph()">← 返回聚合视图</span>
+      <span>·</span>
+      <span id="breadcrumb-node" style="color:var(--text2)"></span>
+    </div>
+    <div class="entity-drawer-body" id="ed-body"></div>
+  </div>
 
-    const healthClass = {
-      "正常": "ok",
-      "告警": "warn",
-      "异常": "err"
+  <!-- CANVAS -->
+  <div class="canvas-wrap" id="canvas-wrap">
+    <svg id="graph-svg"></svg>
+
+    <!-- Stats bar -->
+    <div class="stats-bar" id="stats-bar">
+      <div class="stat-item">
+        <span class="stat-label">节点</span>
+        <span class="stat-val" id="st-nodes">0</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">关系</span>
+        <span class="stat-val" id="st-edges">0</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">项目</span>
+        <span class="stat-val" id="st-projs">0</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">正常</span>
+        <span class="stat-val" style="color:var(--green)" id="st-ok">0</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">告警</span>
+        <span class="stat-val" style="color:var(--yellow)" id="st-warn">0</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">异常</span>
+        <span class="stat-val" style="color:var(--red)" id="st-err">0</span>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="legend-wrap" id="legend-wrap">
+      <div class="legend-title">实体类型</div>
+      <div id="legend-types"></div>
+      <div class="legend-sep"></div>
+      <div class="legend-title">关系类型</div>
+      <div id="legend-rels"></div>
+    </div>
+
+    <!-- Canvas controls -->
+    <div class="canvas-controls">
+      <div class="cc-btn" title="放大" onclick="zoomBy(1.25)">+</div>
+      <div class="cc-btn" title="缩小" onclick="zoomBy(0.8)">−</div>
+      <div class="cc-btn" title="适应视图" onclick="fitView()">⊡</div>
+      <div class="cc-btn" title="全屏" onclick="toggleFullscreen()">⛶</div>
+    </div>
+
+    <!-- Minimap -->
+    <div class="minimap-wrap">
+      <span class="minimap-label">概览图</span>
+      <svg id="minimap-svg"></svg>
+    </div>
+
+    <!-- Tooltip -->
+    <div class="tooltip-el" id="tooltip"></div>
+  </div>
+
+  <!-- RIGHT DETAIL PANEL -->
+  <div class="detail-panel" id="detail-panel">
+    <div class="detail-header">
+      <div class="detail-title-bar">
+        <div class="detail-type-dot" id="dp-dot"></div>
+        <span class="detail-title-text" id="dp-title">详细信息</span>
+      </div>
+      <span class="detail-close" onclick="closeDetail()">✕</span>
+    </div>
+    <div class="detail-body" id="dp-body">
+      <div style="padding:30px 14px;text-align:center;color:var(--text3);font-size:12px;line-height:2">
+        点击节点或关系边<br>查看详细属性信息
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- STATUS BAR -->
+<div class="statusbar">
+  <div class="sb-item">节点 <span class="sb-val" id="sb-n">0</span></div>
+  <div class="sb-item">关系 <span class="sb-val" id="sb-e">0</span></div>
+  <div class="sb-item">项目 <span class="sb-val" id="sb-p">0</span></div>
+  <div class="sb-item">正常 <span class="sb-val" style="color:var(--green)" id="sb-ok">0</span></div>
+  <div class="sb-item">告警 <span class="sb-val" style="color:var(--yellow)" id="sb-wa">0</span></div>
+  <div class="sb-item">异常 <span class="sb-val" style="color:var(--red)" id="sb-er">0</span></div>
+  <div class="sb-spacer"></div>
+  <div class="sb-item sb-time" id="sb-time">--</div>
+</div>
+
+<!-- CONTEXT MENU -->
+<div class="ctx-menu" id="ctx-menu">
+  <div class="ctx-item" onclick="ctxFocus()">🔍 聚焦此节点</div>
+  <div class="ctx-item" onclick="ctxExpand()">⊕ 展开邻居</div>
+  <div class="ctx-item" onclick="ctxHide()">◉ 隐藏节点</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" onclick="ctxDetail()">📋 查看详情</div>
+  <div class="ctx-item" onclick="ctxCopyId()">📋 复制ID</div>
+</div>
+
+<!-- DEPLOY ARCHITECTURE DIAGRAM PANEL -->
+<div class="skill-overlay" id="deploy-panel">
+  <div class="skill-topbar">
+    <span class="skill-topbar-title">🏗 部署架构图</span>
+    <span class="skill-topbar-sub" id="deploy-subtitle">基于知识图谱自动生成</span>
+    <button class="btn btn-default" onclick="exportSkillSVG('deploy-svg','deploy-arch.svg')">⬇ 导出 SVG</button>
+    <button class="btn btn-default" onclick="closeSkillPanel('deploy-panel')">✕ 关闭</button>
+  </div>
+  <div class="skill-canvas" id="deploy-canvas">
+    <svg id="deploy-svg"></svg>
+  </div>
+  <div class="skill-legend" id="deploy-legend"></div>
+</div>
+
+<!-- DATA FLOW DIAGRAM PANEL -->
+<div class="skill-overlay" id="dataflow-panel">
+  <div class="skill-topbar">
+    <span class="skill-topbar-title">🔀 数据链路图</span>
+    <span class="skill-topbar-sub" id="dataflow-subtitle">基于知识图谱自动生成</span>
+    <button class="btn btn-default" onclick="exportSkillSVG('dataflow-svg','data-flow.svg')">⬇ 导出 SVG</button>
+    <button class="btn btn-default" onclick="closeSkillPanel('dataflow-panel')">✕ 关闭</button>
+  </div>
+  <div class="skill-canvas" id="dataflow-canvas">
+    <svg id="dataflow-svg"></svg>
+  </div>
+  <div class="skill-legend" id="dataflow-legend"></div>
+</div>
+
+<!-- ANALYSIS MODAL -->
+<div class="modal-overlay" id="analysis-modal">
+  <div class="modal-box">
+    <div class="modal-title">📊 图谱分析报告</div>
+    <div class="modal-body" id="analysis-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- NOTIFICATION -->
+<div class="notif" id="notif"></div>
+
+<script>
+// ============================================================
+//  ╔══════════════════════════════════════════════════════════╗
+//  ║  GRAPH_DATA  —  唯一数据入口，可直接替换此 JSON 更新图谱  ║
+//  ║                                                          ║
+//  ║  结构说明：                                              ║
+//  ║  • nodes[]:    实体节点列表（必填字段见下方说明）         ║
+//  ║  • relations[]: 关系边列表（必填字段见下方说明）          ║
+//  ║                                                          ║
+//  ║  nodes 必填字段：                                        ║
+//  ║    entity_id        唯一标识                             ║
+//  ║    entity_name      显示名称                             ║
+//  ║    entity_type      类型（见 ETYPE_CONFIG）              ║
+//  ║    project_id       所属项目（global=全局节点）          ║
+//  ║    health_status    正常 | 告警 | 异常                   ║
+//  ║    created_at       创建时间                             ║
+//  ║    updated_at       更新时间                             ║
+//  ║                                                          ║
+//  ║  relations 必填字段：                                    ║
+//  ║    relation_id      唯一标识                             ║
+//  ║    relation_type    类型（见 RTYPE_CONFIG）              ║
+//  ║    source_entity_id 源端 entity_id                       ║
+//  ║    target_entity_id 目标端 entity_id                     ║
+//  ║    health_status    正常 | 告警 | 异常                   ║
+//  ║    created_at       创建时间                             ║
+//  ║    updated_at       更新时间                             ║
+//  ╚══════════════════════════════════════════════════════════╝
+// ============================================================
+
+const GRAPH_DATA = __GRAPH_DATA_JSON__;
+
+
+// ============================================================
+//  ╔══════════════════════════════════════════════════════════╗
+//  ║  APP_CONFIG  —  图谱配置入口，替换此处即可快速调整项目   ║
+//  ║              实体类型、关系类型和布局参数                ║
+//  ╚══════════════════════════════════════════════════════════╝
+//
+//  sections:
+//    projects   → 项目 ID / 名称 / 主色 / 背景色 / 边框色
+//                 新增项目：在此数组追加一项，GRAPH_DATA 即可引用该 project_id
+//    entityTypes → 实体节点类型及颜色（对应 GRAPH_DATA.nodes[].entity_type）
+//                  顺序即图谱从左到右的层次顺序
+//    relationTypes → 关系边类型及颜色（对应 GRAPH_DATA.relations[].relation_type）
+//    layout     → 节点尺寸、间距、行带间隔等布局参数（单位：像素）
+//    healthStates → 健康状态随机刷新时的权重池（正常概率更高）
+// ============================================================
+
+const APP_CONFIG = __APP_CONFIG_JSON__;
+
+// ── Derived runtime constants — built from APP_CONFIG, do not edit manually ──
+const PROJ_CONFIG   = Object.fromEntries(APP_CONFIG.projects.map(p => [p.id, p]));
+const ETYPE_CONFIG  = APP_CONFIG.entityTypes;
+const RTYPE_CONFIG  = APP_CONFIG.relationTypes;
+const LAYER_ORDER   = APP_CONFIG.entityTypes.map(e => e.type);
+const HEALTH_LIST   = APP_CONFIG.healthStates;
+const ETYPE_MAP     = Object.fromEntries(ETYPE_CONFIG.map(e => [e.type, e.color]));
+const RTYPE_MAP     = Object.fromEntries(RTYPE_CONFIG.map(r => [r.type, r.color]));
+const { nodeWidth: NODE_W, nodeHeight: NODE_H, nodeVGap: NODE_V_GAP,
+        bandMarginV: BAND_MARGIN_V, bandGap: BAND_GAP, canvasTop: CANVAS_TOP,
+        colSpan: COL_SPAN, marginLeft: MARGIN_L,
+        collapseThreshold: COLLAPSE_THRESHOLD = 20,
+        skillCollapseThreshold: SKILL_COLL_THRESH = 10 } = APP_CONFIG.layout;
+const CELL_H = NODE_H + NODE_V_GAP;
+
+// ── Project list — auto-derived from GRAPH_DATA (no manual maintenance needed) ──
+const PROJS = [...new Set(
+  GRAPH_DATA.nodes.map(n => n.project_id).filter(p => p && p !== 'global')
+)].sort();
+
+const SKILL_STATE = __SKILL_STATE_JSON__;
+const DEFAULT_SKILL_FILTERS = {
+  project: 'all',
+  entityType: 'all',
+  relationType: 'all',
+  health: 'all',
+  keyword: ''
+};
+
+// ── 运行时state ─────────────────────────────────────────────────────────────
+let rawData = JSON.parse(JSON.stringify(GRAPH_DATA)); // deep copy; doRefresh() updates this
+
+// ── Aggregate mode state ─────────────────────────────────────────────────
+let aggMode      = false;
+// Set of "proj::type" keys manually expanded by the user
+let expandedGroups = new Set();
+// Independent expanded-group state for the two skill diagrams
+let deployExpandedGroups  = new Set();  // keys: "proj::type"
+let dfExpandedGroups      = new Set();  // keys: "tier::type"   // true = aggregate view active
+let subgraphNode = null;    // entity_id of the focused subgraph node (or null)
+let savedVisNodes = null;   // snapshot before entering subgraph
+let savedVisEdges = null;
+let visNodes = [];
+let visEdges = [];
+let hiddenNodes = new Set();
+let focusedNode = null;
+let currentLayoutMode = 'hierarchical'; // or 'force'
+let autoRefreshTimer = null;
+let svg, g, zoom;
+let lastTransform = d3.zoomIdentity;
+let ctxTargetNode = null;
+
+// ============================================================
+//  AGGREGATE MODE ENGINE
+// ============================================================
+
+// ── toggleAggMode ─────────────────────────────────────────────────────────
+function collapseAllGroups(){
+  expandedGroups.clear();
+  visNodes.forEach(n=>{ n._x=undefined; n._y=undefined; });
+  renderGraph(); buildSidebar(); updateStats();
+  showNotif('已收起所有展开的聚合节点');
+}
+
+function toggleAggMode(){
+  aggMode = !aggMode;
+  subgraphNode = null;
+  savedVisNodes = null;
+  savedVisEdges = null;
+  document.getElementById('entity-drawer').classList.remove('open');
+  document.getElementById('breadcrumb-bar').classList.remove('visible');
+  document.body.classList.toggle('agg-mode-active', aggMode);
+  document.getElementById('agg-toggle-btn').textContent = aggMode ? '⊞ 普通视图' : '⊞ 聚合视图';
+  applyFilters();
+  showNotif(aggMode ? '已切换至聚合视图，点击聚合节点查看实体列表' : '已切换至普通视图');
+}
+
+// ── Build aggregate graph from visNodes / visEdges ───────────────────────
+// aggNodes: one virtual node per entity_type (aggregated across all projects)
+// aggEdges: one virtual edge per (srcType, tgtType, relation_type) triple, with count
+function buildAggregateGraph(){
+  // 1. Build aggNodes
+  const typeMap = {};  // type -> { entityType, color, nodes[], ok, warn, err }
+  visNodes.forEach(n => {
+    const t = n.entity_type || '未知';
+    if(!typeMap[t]){
+      typeMap[t] = { entityType: t, color: ETYPE_MAP[t]||'#64748b', nodes: [], ok:0, warn:0, err:0 };
+    }
+    typeMap[t].nodes.push(n);
+    if(n.health_status==='正常')      typeMap[t].ok++;
+    else if(n.health_status==='告警') typeMap[t].warn++;
+    else                               typeMap[t].err++;
+  });
+
+  const aggNodes = Object.values(typeMap).map(t => ({
+    _aggId:       `AGG::${t.entityType}`,
+    entityType:   t.entityType,
+    color:        t.color,
+    nodes:        t.nodes,
+    count:        t.nodes.length,
+    ok:           t.ok, warn: t.warn, err: t.err,
+    _x: undefined, _y: undefined,
+  }));
+
+  // 2. Build aggEdges — grouped by (srcType, tgtType) only.
+  //    Each aggEdge carries a byRelType breakdown: { relType -> { count, color, rels[] } }
+  const edgeMap = {};
+  const idToType = {};
+  visNodes.forEach(n => { idToType[n.entity_id] = n.entity_type || '未知'; });
+
+  visEdges.forEach(r => {
+    const st = idToType[r.source_entity_id];
+    const tt = idToType[r.target_entity_id];
+    if(!st || !tt || st === tt) return;   // skip same-type self-loops
+    // Canonical key: always smaller string first so A→B and B→A don't create two entries
+    // But we do preserve direction for rendering, so use directed key
+    const key = `${st}||${tt}`;
+    if(!edgeMap[key]){
+      edgeMap[key] = {
+        _aggRelId: `AGGREL::${key}`,
+        srcType: st, tgtType: tt,
+        count: 0,
+        byRelType: {},   // relType -> { count, color, rels[] }
+        rels: [],
+      };
+    }
+    const ae = edgeMap[key];
+    ae.count++;
+    ae.rels.push(r);
+    if(!ae.byRelType[r.relation_type]){
+      ae.byRelType[r.relation_type] = {
+        count: 0,
+        color: RTYPE_MAP[r.relation_type] || '#64748b',
+        rels: [],
+      };
+    }
+    ae.byRelType[r.relation_type].count++;
+    ae.byRelType[r.relation_type].rels.push(r);
+  });
+
+  // Derive a dominant color: use the relType with the most relations
+  Object.values(edgeMap).forEach(ae => {
+    const dominant = Object.entries(ae.byRelType)
+      .sort((a,b) => b[1].count - a[1].count)[0];
+    ae.color         = dominant ? dominant[1].color : '#64748b';
+    ae.relation_type = dominant ? dominant[0] : '';   // kept for tooltip / marker fallback
+  });
+
+  const aggEdges = Object.values(edgeMap);
+  return { aggNodes, aggEdges };
+}
+
+// ── Render aggregate graph ─────────────────────────────────────────────────
+function renderAggregateGraph(){
+  if(!g) initSVG();
+  g.selectAll('*').remove();
+
+  const wrap = document.getElementById('canvas-wrap');
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+
+  const { aggNodes, aggEdges } = buildAggregateGraph();
+
+  // ── Layout: DAG layered layout (arrows flow left → right) ──────────────
+  // 1. Build directed adjacency from aggEdges
+  // 2. Assign each node a "column" (layer) via longest-path / topological sort
+  // 3. Spread nodes within each column vertically
+
+  const AGG_W = 140, AGG_H = 64;
+  const AGG_COL_SPAN = 220;   // horizontal gap between columns
+  const AGG_ROW_SPAN = 110;   // vertical gap between nodes in same column
+
+  // -- Step 1: build in/out degree maps from aggEdges (before they're drawn) --
+  const outEdges = {};   // srcType -> [tgtType, ...]
+  const inDegree = {};   // type -> count
+  aggNodes.forEach(an => { outEdges[an.entityType] = []; inDegree[an.entityType] = 0; });
+  aggEdges.forEach(ae => {
+    if(outEdges[ae.srcType]) outEdges[ae.srcType].push(ae.tgtType);
+    if(inDegree[ae.tgtType] !== undefined) inDegree[ae.tgtType]++;
+  });
+
+  // -- Step 2: Kahn's algorithm for topological order → assign layers --
+  const layer = {};
+  const queue = aggNodes.map(an => an.entityType).filter(t => inDegree[t] === 0);
+  // Nodes not in any edge get placed in layer 0 too
+  aggNodes.forEach(an => { if(layer[an.entityType] === undefined) layer[an.entityType] = 0; });
+  queue.forEach(t => { layer[t] = 0; });
+
+  // BFS-style layering: layer[v] = max(layer[u]+1) for all u->v
+  // Use the LAYER_ORDER as tiebreaker seed
+  const sorted = aggNodes.map(an => an.entityType);
+  sorted.sort((a,b) => {
+    const ia = LAYER_ORDER.indexOf(a), ib = LAYER_ORDER.indexOf(b);
+    return (ia<0?99:ia) - (ib<0?99:ib);
+  });
+  // Forward pass: assign layer = max predecessor layer + 1
+  sorted.forEach(t => {
+    if(layer[t] === undefined) layer[t] = 0;
+    (outEdges[t]||[]).forEach(tgt => {
+      if(layer[tgt] === undefined) layer[tgt] = 0;
+      if(layer[tgt] <= layer[t]) layer[tgt] = layer[t] + 1;
+    });
+  });
+  // Second pass for any remaining unassigned
+  aggNodes.forEach(an => { if(layer[an.entityType] === undefined) layer[an.entityType] = 0; });
+
+  // -- Step 3: group nodes by layer, then assign x/y ----------------------
+  const byLayer = {};
+  aggNodes.forEach(an => {
+    const l = layer[an.entityType] || 0;
+    if(!byLayer[l]) byLayer[l] = [];
+    byLayer[l].push(an);
+  });
+
+  // Sort within each layer by LAYER_ORDER for consistent vertical ordering
+  Object.values(byLayer).forEach(col => {
+    col.sort((a,b) => {
+      const ia = LAYER_ORDER.indexOf(a.entityType);
+      const ib = LAYER_ORDER.indexOf(b.entityType);
+      return (ia<0?99:ia) - (ib<0?99:ib);
+    });
+  });
+
+  // Compute canvas height needed and centre vertically
+  const maxColSize = Math.max(...Object.values(byLayer).map(c => c.length), 1);
+  const numLayers  = Math.max(...Object.keys(byLayer).map(Number)) + 1;
+  const totalH     = maxColSize * (AGG_H + AGG_ROW_SPAN) - AGG_ROW_SPAN;
+  const startY     = Math.max(CANVAS_TOP + AGG_H/2 + 20, (H - totalH) / 2 + AGG_H/2);
+
+  Object.entries(byLayer).forEach(([lStr, nodes]) => {
+    const l = Number(lStr);
+    const colH = nodes.length * (AGG_H + AGG_ROW_SPAN) - AGG_ROW_SPAN;
+    const colStartY = startY + (totalH - colH) / 2;   // centre short columns
+    nodes.forEach((an, i) => {
+      an._x = MARGIN_L + AGG_W/2 + l * AGG_COL_SPAN;
+      an._y = colStartY + i * (AGG_H + AGG_ROW_SPAN) + AGG_H/2;
+    });
+  });
+
+  // Build lookup
+  const aggNodeById = {};
+  aggNodes.forEach(an => { aggNodeById[an.entityType] = an; });
+
+  // ── Draw aggregate edges ─────────────────────────────────────────────────
+  // Add agg-specific arrow markers
+  const defs = svg.select('defs');
+  aggEdges.forEach(ae => {
+    const mid = ae.relation_type.replace(/\s/g,'_');
+    if(svg.select(`#arrow-end-${mid}`).empty()){
+      defs.append('marker').attr('id',`arrow-end-${mid}`)
+        .attr('viewBox','0 -3 8 6').attr('refX',7).attr('refY',0)
+        .attr('markerWidth',5).attr('markerHeight',5).attr('orient','auto')
+        .append('path').attr('d','M0,-3L8,0L0,3Z').attr('fill',ae.color).attr('opacity',0.75);
+    }
+  });
+
+  // ── Helper: bezier path between two agg nodes (handles any direction) ──
+  function aggEdgePath(sn, tn){
+    const forward = sn._x <= tn._x;
+    if(forward){
+      // Normal left→right: exit right edge, enter left edge
+      const sx = sn._x + AGG_W/2, sy = sn._y;
+      const tx = tn._x - AGG_W/2, ty = tn._y;
+      const cp = Math.max(50, Math.abs(tx - sx) * 0.45);
+      return `M${sx},${sy} C${sx+cp},${sy} ${tx-cp},${ty} ${tx},${ty}`;
+    } else {
+      // Back edge (right→left): arc over the top via bottom of nodes
+      const sx = sn._x - AGG_W/2, sy = sn._y + AGG_H/2;
+      const tx = tn._x + AGG_W/2, ty = tn._y + AGG_H/2;
+      const midX = (sx + tx) / 2;
+      const bow  = Math.abs(sy - ty) * 0.5 + 60;
+      return `M${sx},${sy} C${sx},${sy+bow} ${tx},${ty+bow} ${tx},${ty}`;
+    }
+  }
+
+  // ── Helper: pill label position (midpoint offset for readability) ───────
+  function aggPillPos(sn, tn){
+    const mx = (sn._x + tn._x) / 2;
+    const my = (sn._y + tn._y) / 2;
+    // For back-edges arc downward, offset pill below the midpoint
+    const forward = sn._x <= tn._x;
+    return { x: mx, y: forward ? my - 12 : my + 48 };
+  }
+
+  // ── Draw edges ───────────────────────────────────────────────────────────
+  const edgeGrp = g.append('g').attr('class','agg-edges');
+  aggEdges.forEach(ae => {
+    const sn = aggNodeById[ae.srcType];
+    const tn = aggNodeById[ae.tgtType];
+    if(!sn || !tn) return;
+
+    // Use dominant color for the line; stroke-width scales with total count
+    edgeGrp.append('path')
+      .datum(ae)
+      .attr('id', `agg-path-${ae._aggRelId.replace(/[^a-z0-9]/gi,'_')}`)
+      .attr('class','edge-path')
+      .attr('d', aggEdgePath(sn, tn))
+      .attr('stroke', ae.color)
+      .attr('stroke-width', 1.2)
+      .attr('stroke-opacity', 0.55)
+      .attr('stroke-dasharray','6,3')
+      .attr('marker-end',`url(#arrow-end-${ae.relation_type.replace(/\s/g,'_')})`)
+      .on('click', (ev,d) => { ev.stopPropagation(); showAggEdgeDetail(d); })
+      .on('mousemove', (ev,d) => {
+        // Tooltip: show per-relType breakdown
+        const rows = Object.entries(d.byRelType)
+          .sort((a,b) => b[1].count - a[1].count)
+          .map(([rt,v]) =>
+            `<span style="color:${v.color};font-size:10px">▸ ${rt}</span> <b>${v.count}</b> 条`)
+          .join('<br>');
+        showRawTooltip(ev,
+          `<b style="color:${d.color}">${d.srcType} → ${d.tgtType}</b><br>` +
+          `共 <b>${d.count}</b> 条关系<br>${rows}`);
+      })
+      .on('mouseleave', hideTooltip);
+
+    // ── Pill: stack one tag per relation type ─────────────────────────────
+    const pos = aggPillPos(sn, tn);
+    const pill = edgeGrp.append('g')
+      .datum(ae)
+      .attr('class','agg-edge-pill')
+      .attr('transform', `translate(${pos.x},${pos.y})`);
+
+    const relTypes = Object.entries(ae.byRelType)
+      .sort((a,b) => b[1].count - a[1].count);   // most common first
+    const TAG_H = 14, TAG_GAP = 3;
+    const totalPillH = relTypes.length * TAG_H + (relTypes.length-1) * TAG_GAP;
+    let tagY = -totalPillH / 2;
+
+    relTypes.forEach(([rt, rv]) => {
+      const label = `${rt} ×${rv.count}`;
+      const tagW  = Math.max(52, label.length * 6 + 12);
+      const tg = pill.append('g');
+      tg.append('rect')
+        .attr('x', -tagW/2).attr('y', tagY)
+        .attr('width', tagW).attr('height', TAG_H)
+        .attr('rx', 4)
+        .attr('fill', `${rv.color}20`)
+        .attr('stroke', rv.color)
+        .attr('stroke-width', 0.7);
+      tg.append('text')
+        .attr('x', 0).attr('y', tagY + TAG_H - 3)
+        .attr('text-anchor','middle')
+        .attr('font-size', 8)
+        .attr('font-family','Noto Sans SC,sans-serif')
+        .attr('fill', rv.color)
+        .attr('pointer-events','none')
+        .text(label);
+      tagY += TAG_H + TAG_GAP;
+    });
+  });
+
+  // ── Helper: refresh all edges connected to a moved agg node ─────────────
+  function refreshAggEdges(movedType){
+    edgeGrp.selectAll('path.edge-path').each(function(ae){
+      if(ae.srcType !== movedType && ae.tgtType !== movedType) return;
+      const sn = aggNodeById[ae.srcType], tn = aggNodeById[ae.tgtType];
+      if(!sn || !tn) return;
+      d3.select(this).attr('d', aggEdgePath(sn, tn));
+    });
+    edgeGrp.selectAll('g.agg-edge-pill').each(function(ae){
+      if(ae.srcType !== movedType && ae.tgtType !== movedType) return;
+      const sn = aggNodeById[ae.srcType], tn = aggNodeById[ae.tgtType];
+      if(!sn || !tn) return;
+      const pos = aggPillPos(sn, tn);
+      d3.select(this).attr('transform', `translate(${pos.x},${pos.y})`);
+    });
+  }
+
+  // ── Draw aggregate nodes ─────────────────────────────────────────────────
+  const nodeGrp = g.append('g').attr('class','agg-nodes');
+  aggNodes.forEach(an => {
+    const c = an.color;
+    const ng = nodeGrp.append('g')
+      .datum(an)
+      .attr('class','agg-node-g')
+      .attr('transform',`translate(${an._x - AGG_W/2},${an._y - AGG_H/2})`);
+
+    // Shadow
+    ng.append('rect').attr('x',3).attr('y',3).attr('width',AGG_W).attr('height',AGG_H)
+      .attr('rx',10).attr('fill','rgba(0,0,0,0.5)');
+    // Body
+    ng.append('rect').attr('class','agg-body').attr('width',AGG_W).attr('height',AGG_H)
+      .attr('rx',10).attr('fill','#0f1e33').attr('stroke',c).attr('stroke-width',2);
+    // Left bar
+    ng.append('rect').attr('x',0).attr('y',0).attr('width',5).attr('height',AGG_H)
+      .attr('rx',4).attr('fill',c);
+    // Type name
+    ng.append('text').attr('x',AGG_W/2+3).attr('y',AGG_H/2-6)
+      .attr('text-anchor','middle').attr('font-size',13).attr('font-weight',600)
+      .attr('font-family','Noto Sans SC,sans-serif').attr('fill','#cce4ff')
+      .attr('pointer-events','none').text(an.entityType);
+    // Count
+    ng.append('text').attr('x',AGG_W/2+3).attr('y',AGG_H/2+10)
+      .attr('text-anchor','middle').attr('font-size',11)
+      .attr('font-family','IBM Plex Mono,monospace').attr('fill',c)
+      .attr('pointer-events','none').text(`${an.count} 个实体`);
+    // Health mini-bar
+    const barX = AGG_W-14, barH = AGG_H-16, barY = 8, total = an.count||1;
+    let yOff = barY;
+    [['ok',an.ok,'#00d68f'],['warn',an.warn,'#ffcc00'],['err',an.err,'#ff4040']].forEach(([,v,col])=>{
+      if(!v) return;
+      const h = Math.max(3, barH*v/total);
+      ng.append('rect').attr('x',barX).attr('y',yOff).attr('width',5).attr('height',h)
+        .attr('rx',2).attr('fill',col).attr('opacity',0.85);
+      yOff += h+1;
+    });
+
+    // ── Drag ───────────────────────────────────────────────────────────────
+    let _dragging = false;
+    const aggDrag = d3.drag()
+      .on('start', function(ev){
+        _dragging = false;
+        d3.select(this).raise();
+        ev.sourceEvent.stopPropagation();
+      })
+      .on('drag', function(ev, d){
+        _dragging = true;
+        d._x += ev.dx;
+        d._y += ev.dy;
+        d3.select(this).attr('transform', `translate(${d._x - AGG_W/2},${d._y - AGG_H/2})`);
+        refreshAggEdges(d.entityType);
+        refreshMinimap();
+      })
+      .on('end', function(ev, d){
+        d3.select(this).style('cursor','grab');
+      });
+
+    ng.call(aggDrag).style('cursor','grab');
+
+    // ── Click (fires only when not dragging) ───────────────────────────────
+    ng.on('click', (ev, d) => {
+      if(_dragging){ _dragging = false; return; }
+      ev.stopPropagation();
+      openEntityDrawer(d);
+    });
+    ng.on('mousemove', (ev,d) => {
+      showRawTooltip(ev,
+        `<b style="color:${d.color}">${d.entityType}</b><br>` +
+        `实体数量: <b>${d.count}</b><br>` +
+        `<span style="color:var(--green)">正常 ${d.ok}</span>  ` +
+        `<span style="color:var(--yellow)">告警 ${d.warn}</span>  ` +
+        `<span style="color:var(--red)">异常 ${d.err}</span>`);
+    });
+    ng.on('mouseleave', hideTooltip);
+  });
+
+  setTimeout(fitView, 80);
+  refreshMinimap();
+}
+
+// ── showRawTooltip: show HTML tooltip ─────────────────────────────────────
+function showRawTooltip(ev, html){
+  const tt = document.getElementById('tooltip');
+  tt.innerHTML = html;
+  tt.style.opacity = '1';
+  tt.style.left = (ev.clientX+14)+'px';
+  tt.style.top  = (ev.clientY-10)+'px';
+}
+
+// ── Aggregate edge detail in right panel ──────────────────────────────────
+function showAggEdgeDetail(ae){
+  document.getElementById('detail-panel').classList.add('open');
+  document.getElementById('dp-dot').style.background = ae.color;
+  document.getElementById('dp-title').textContent = `聚合关系 · ${ae.srcType} → ${ae.tgtType}`;
+
+  // ── Summary section ───────────────────────────────────────────────────
+  let html = `<div class="detail-section"><div class="detail-section-title">聚合关系概览</div>
+    <div class="detail-row"><span class="detail-key">源实体类型</span><span class="detail-val">${ae.srcType}</span></div>
+    <div class="detail-row"><span class="detail-key">目标实体类型</span><span class="detail-val">${ae.tgtType}</span></div>
+    <div class="detail-row"><span class="detail-key">关系总数</span><span class="detail-val" style="color:var(--accent)">${ae.count} 条</span></div>
+  </div>`;
+
+  // ── Per relation-type breakdown ───────────────────────────────────────
+  html += `<div class="detail-section"><div class="detail-section-title">按关系类型分布</div>`;
+  const sorted = Object.entries(ae.byRelType).sort((a,b) => b[1].count - a[1].count);
+  sorted.forEach(([rt, rv]) => {
+    const pct = Math.round(rv.count / ae.count * 100);
+    html += `<div style="margin:5px 0">
+      <div class="detail-row" style="margin-bottom:3px">
+        <span class="detail-key" style="color:${rv.color}">${rt}</span>
+        <span class="detail-val" style="color:${rv.color}">${rv.count} 条 (${pct}%)</span>
+      </div>
+      <div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${rv.color};border-radius:3px;transition:width 0.3s"></div>
+      </div>
+    </div>`;
+  });
+  html += `</div>`;
+
+  // ── Detailed relation list per type ───────────────────────────────────
+  sorted.forEach(([rt, rv]) => {
+    html += `<div class="detail-section">
+      <div class="detail-section-title" style="color:${rv.color}">${rt} 明细（${Math.min(rv.count,5)} / ${rv.count}）</div>`;
+    rv.rels.slice(0,5).forEach(r => {
+      const sn = rawData.nodes.find(n=>n.entity_id===r.source_entity_id);
+      const tn = rawData.nodes.find(n=>n.entity_id===r.target_entity_id);
+      const hc = r.health_status==='正常'?'ok':r.health_status==='告警'?'warn':'err';
+      html += `<div class="detail-row" style="flex-direction:column;align-items:flex-start;gap:2px;padding:4px 0">
+        <span style="font-size:11px;color:var(--text)">${sn?.entity_name||r.source_entity_id} → ${tn?.entity_name||r.target_entity_id}</span>
+        <span class="detail-val ${hc}" style="font-size:10px">${r.health_status}</span>
+      </div>`;
+    });
+    if(rv.count>5) html += `<div style="font-size:11px;color:var(--text3);padding:2px 0">… 还有 ${rv.count-5} 条</div>`;
+    html += `</div>`;
+  });
+
+  document.getElementById('dp-body').innerHTML = html;
+}
+
+// ── Entity drawer: show all entities of a type ────────────────────────────
+function openEntityDrawer(aggNode){
+  const drawer = document.getElementById('entity-drawer');
+  document.getElementById('ed-dot').style.background = aggNode.color;
+  document.getElementById('ed-title').textContent = aggNode.entityType;
+  document.getElementById('ed-count').textContent = `${aggNode.count} 个`;
+
+  const body = document.getElementById('ed-body');
+  body.innerHTML = '';
+
+  // ── Entity list ───────────────────────────────────────────────────────
+  const listSec = document.createElement('div');
+  listSec.style.cssText = 'padding:4px 0 8px';
+
+  const listTitle = document.createElement('div');
+  listTitle.className = 'drawer-rel-title';
+  listTitle.style.cssText = 'padding:6px 14px 4px';
+  listTitle.textContent = '实体列表（点击查看子图谱）';
+  listSec.appendChild(listTitle);
+
+  aggNode.nodes.forEach(n => {
+    const row = document.createElement('div');
+    row.className = 'drawer-entity-row';
+    const hc = n.health_status==='正常'?'ok':n.health_status==='告警'?'warn':'err';
+    row.innerHTML = `
+      <div class="der-health ${hc}"></div>
+      <span class="der-name" title="${n.entity_name}">${n.entity_name}</span>
+      <span class="der-proj">${n.project_id||''}</span>`;
+    row.onclick = () => {
+      body.querySelectorAll('.drawer-entity-row').forEach(r=>r.classList.remove('active'));
+      row.classList.add('active');
+      enterSubgraph(n);
+    };
+    listSec.appendChild(row);
+  });
+  body.appendChild(listSec);
+
+  // ── Relation summary for this type ───────────────────────────────────
+  const rels = visEdges.filter(r => {
+    const sn = visNodes.find(n=>n.entity_id===r.source_entity_id);
+    const tn = visNodes.find(n=>n.entity_id===r.target_entity_id);
+    return (sn?.entity_type===aggNode.entityType || tn?.entity_type===aggNode.entityType);
+  });
+  if(rels.length){
+    const relSec = document.createElement('div');
+    relSec.className = 'drawer-rel-section';
+    relSec.innerHTML = `<div class="drawer-rel-title">涉及关系（${rels.length} 条）</div>`;
+    // Group by type
+    const byType = {};
+    rels.forEach(r => { byType[r.relation_type] = (byType[r.relation_type]||0)+1; });
+    Object.entries(byType).forEach(([rt, cnt]) => {
+      const col = RTYPE_MAP[rt]||'#64748b';
+      const row = document.createElement('div');
+      row.className = 'drawer-rel-row';
+      row.innerHTML = `<span class="drawer-rel-badge" style="background:${col}22;color:${col};border:1px solid ${col}44">${rt}</span>
+        <span>${cnt} 条</span>`;
+      relSec.appendChild(row);
+    });
+    body.appendChild(relSec);
+  }
+
+  drawer.classList.add('open');
+}
+
+function closeEntityDrawer(){
+  document.getElementById('entity-drawer').classList.remove('open');
+}
+
+// ── Subgraph: show ego-network of one entity ──────────────────────────────
+function enterSubgraph(node){
+  subgraphNode = node.entity_id;
+  // Save current vis state (full filter result)
+  if(!savedVisNodes) savedVisNodes = visNodes.slice();
+  if(!savedVisEdges) savedVisEdges = visEdges.slice();
+
+  // Find 1-hop neighbours
+  const connectedIds = new Set([node.entity_id]);
+  savedVisEdges.forEach(r => {
+    if(r.source_entity_id===node.entity_id) connectedIds.add(r.target_entity_id);
+    if(r.target_entity_id===node.entity_id) connectedIds.add(r.source_entity_id);
+  });
+
+  // Temporarily set visNodes/visEdges to subgraph
+  visNodes = savedVisNodes.filter(n => connectedIds.has(n.entity_id));
+  visEdges = savedVisEdges.filter(r =>
+    connectedIds.has(r.source_entity_id) && connectedIds.has(r.target_entity_id)
+  );
+
+  // Reset positions so layout recalculates
+  visNodes.forEach(n => { n._x = undefined; n._y = undefined; });
+
+  // Show breadcrumb
+  document.getElementById('breadcrumb-bar').classList.add('visible');
+  document.getElementById('breadcrumb-node').textContent = `${node.entity_name} (${node.entity_type})`;
+
+  // Close drawer and render normal graph for the subgraph
+  aggMode = false;
+  renderGraph();
+  updateStats();
+  setTimeout(fitView, 80);
+  showNotif(`子图谱：${node.entity_name} 的 1 跳邻居`);
+}
+
+function exitSubgraph(){
+  subgraphNode = null;
+  document.getElementById('breadcrumb-bar').classList.remove('visible');
+  document.getElementById('entity-drawer').classList.remove('open');
+
+  if(savedVisNodes){
+    visNodes = savedVisNodes;
+    visEdges = savedVisEdges;
+    savedVisNodes = null;
+    savedVisEdges = null;
+  }
+  aggMode = true;
+  renderAggregateGraph();
+  updateStats();
+  document.body.classList.add('agg-mode-active');
+  showNotif('已返回聚合视图');
+}
+
+// ============================================================
+//  FILTER & RENDER
+// ============================================================
+function getSelectedProjects(){
+  const sel = document.getElementById('proj-select');
+  const vals = Array.from(sel.selectedOptions).map(o=>o.value);
+  if(vals.includes('all') || vals.length===0) return null; // null = all
+  return vals;
+}
+
+function applyFilters(){
+  if(!aggMode) expandedGroups.clear();   // reset when filters change
+  const projs = getSelectedProjects();
+  const etype = document.getElementById('etype-filter').value;
+  const rtype = document.getElementById('rtype-filter').value;
+  const hstatus = document.getElementById('health-filter').value;
+  const search = document.getElementById('search-inp').value.trim().toLowerCase();
+
+  visNodes = rawData.nodes.filter(n => {
+    if(hiddenNodes.has(n.entity_id)) return false;
+    if(n.entity_id === 'U-ROOT') return true;
+    if(projs && !projs.includes(n.project_id)) return false;
+    if(etype !== 'all' && n.entity_type !== etype) return false;
+    if(hstatus !== 'all' && n.health_status !== hstatus) return false;
+    if(search && !n.entity_name.toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  const nodeIdSet = new Set(visNodes.map(n=>n.entity_id));
+
+  visEdges = rawData.relations.filter(r => {
+    if(!nodeIdSet.has(r.source_entity_id) || !nodeIdSet.has(r.target_entity_id)) return false;
+    if(rtype === 'cross'){
+      // Only show cross-project edges
+      const sNode = rawData.nodes.find(n=>n.entity_id===r.source_entity_id);
+      const tNode = rawData.nodes.find(n=>n.entity_id===r.target_entity_id);
+      if(!sNode||!tNode) return false;
+      const sp = sNode.project_id||'global', tp = tNode.project_id||'global';
+      return sp !== tp && sp !== 'global' && tp !== 'global';
+    }
+    if(rtype !== 'all' && r.relation_type !== rtype) return false;
+    return true;
+  });
+
+  renderGraph();
+  buildSidebar();
+  updateStats();
+}
+
+// ============================================================
+//  POSITION LAYOUT  — topology-aware DAG layering
+// ============================================================
+// Design:
+//   1. Compute a DAG layer (column) per node using longest-path from
+//      actual edges — upstream nodes land in smaller column indices (left),
+//      downstream nodes in larger indices (right).
+//   2. Each project occupies its own horizontal band (rows are isolated).
+//   3. Within each (project × column) cell, nodes are distributed
+//      vertically, centred in the band.
+//   4. LAYER_ORDER is used only as a tiebreaker when two nodes share the
+//      same topological depth, keeping the order stable across refreshes.
+// ─────────────────────────────────────────────────────────────────────────
+
+function computeHierarchicalPositions(nodes, W, H){
+  window._projOffset = {};  // reset drag offsets on fresh layout
+
+  const nodeIds = new Set(nodes.map(n => n.entity_id));
+
+  // ── Step 1: build adjacency from ALL currently visible edges ─────────
+  // We use visEdges (before collapse remapping) so real relations drive
+  // topology; dispEdges remapped edges would work too but visEdges is cleaner.
+  const edgeSrc = visEdges.filter(
+    e => nodeIds.has(e.source_entity_id) && nodeIds.has(e.target_entity_id)
+  );
+
+  // out-edges and in-degree per node
+  const outMap   = {};   // id -> Set of target ids
+  const inDegree = {};
+  nodes.forEach(n => { outMap[n.entity_id] = new Set(); inDegree[n.entity_id] = 0; });
+  edgeSrc.forEach(e => {
+    if(outMap[e.source_entity_id] && !outMap[e.source_entity_id].has(e.target_entity_id)){
+      outMap[e.source_entity_id].add(e.target_entity_id);
+      inDegree[e.target_entity_id] = (inDegree[e.target_entity_id]||0) + 1;
+    }
+  });
+
+  // ── Step 2: longest-path layering (handles cycles via visited guard) ──
+  // layer[id] = column index (0 = leftmost / root)
+  const layer = {};
+  nodes.forEach(n => { layer[n.entity_id] = 0; });
+
+  // BFS forward-pass: for each edge u→v, layer[v] = max(layer[v], layer[u]+1)
+  // Repeat until stable (handles back-edges in cycles gracefully)
+  // Use LAYER_ORDER rank as initial seed so disconnected nodes keep original order
+  const typeRank = {};
+  LAYER_ORDER.forEach((t, i) => { typeRank[t] = i; });
+  nodes.forEach(n => { layer[n.entity_id] = typeRank[n.entity_type] !== undefined ? typeRank[n.entity_type] : 0; });
+
+  // Topological forward-pass (up to N iterations to handle long chains)
+  const maxIter = nodes.length + 1;
+  for(let iter = 0; iter < maxIter; iter++){
+    let changed = false;
+    edgeSrc.forEach(e => {
+      const nl = layer[e.source_entity_id] + 1;
+      if(nl > layer[e.target_entity_id]){
+        layer[e.target_entity_id] = nl;
+        changed = true;
+      }
+    });
+    if(!changed) break;
+  }
+
+  // ── Step 3: normalise layers per project so each project starts at 0 ──
+  // This prevents a project that happens to have deep types from pushing
+  // all its nodes far right.
+  const projList = [...new Set(
+    nodes.filter(n => n.project_id && n.project_id !== 'global').map(n => n.project_id)
+  )].sort();
+
+  const projNodes = {};
+  projList.forEach(p => { projNodes[p] = nodes.filter(n => n.project_id === p); });
+
+  // Per-project min layer → shift so min = 0
+  projList.forEach(proj => {
+    const pnodes = projNodes[proj];
+    if(!pnodes.length) return;
+    const minL = Math.min(...pnodes.map(n => layer[n.entity_id]));
+    pnodes.forEach(n => { layer[n.entity_id] -= minL; });
+  });
+
+  // Global nodes: keep their layer as-is (they sit in their own row)
+  const globalNodes = nodes.filter(n => !n.project_id || n.project_id === 'global');
+
+  // ── Step 4: column X positions (shared across all projects) ───────────
+  // Use the max layer across all nodes to define column count
+  const maxLayer = Math.max(...nodes.map(n => layer[n.entity_id]), 0);
+  const colX = {};   // layer index → x centre
+  for(let l = 0; l <= maxLayer; l++){
+    colX[l] = MARGIN_L + l * COL_SPAN;
+  }
+
+  // ── Step 5: band heights ───────────────────────────────────────────────
+  function bandHeight(proj){
+    // max nodes sharing the same layer within this project
+    const layerCounts = {};
+    projNodes[proj].forEach(n => {
+      const l = layer[n.entity_id];
+      layerCounts[l] = (layerCounts[l]||0) + 1;
+    });
+    const maxCount = Math.max(...Object.values(layerCounts), 1);
+    return maxCount * CELL_H + BAND_MARGIN_V * 2;
+  }
+
+  const bandTopY = {};
+  let curY = CANVAS_TOP;
+  projList.forEach(proj => {
+    bandTopY[proj] = curY;
+    curY += bandHeight(proj) + BAND_GAP;
+  });
+  const totalUsedH = curY - BAND_GAP;
+
+  // ── Step 6: assign positions ───────────────────────────────────────────
+  const positions = {};
+
+  // Global nodes: centred vertically
+  globalNodes.forEach(n => {
+    positions[n.entity_id] = {
+      x: colX[layer[n.entity_id]] !== undefined ? colX[layer[n.entity_id]] : MARGIN_L,
+      y: CANVAS_TOP + totalUsedH / 2
+    };
+  });
+
+  // Project nodes: group by (proj, layer), sort within each cell by
+  // LAYER_ORDER type rank for stable ordering, then distribute vertically
+  projList.forEach(proj => {
+    const bTop = bandTopY[proj];
+    const bH   = bandHeight(proj);
+
+    // group by layer
+    const byLayer = {};
+    projNodes[proj].forEach(n => {
+      const l = layer[n.entity_id];
+      (byLayer[l] = byLayer[l]||[]).push(n);
+    });
+
+    Object.entries(byLayer).forEach(([lStr, colNodes]) => {
+      const l = Number(lStr);
+      const x = colX[l];
+
+      // Sort within column by type rank, then by name for stability
+      colNodes.sort((a, b) => {
+        const ra = typeRank[a.entity_type] !== undefined ? typeRank[a.entity_type] : 99;
+        const rb = typeRank[b.entity_type] !== undefined ? typeRank[b.entity_type] : 99;
+        if(ra !== rb) return ra - rb;
+        return a.entity_name.localeCompare(b.entity_name);
+      });
+
+      // Centre the column vertically within the band
+      const colH     = colNodes.length * CELL_H - NODE_V_GAP;
+      const startY   = bTop + (bH - colH) / 2 + NODE_H / 2;
+
+      colNodes.forEach((n, i) => {
+        positions[n.entity_id] = {
+          x,
+          y: startY + i * CELL_H
+        };
+      });
+    });
+  });
+
+  return positions;
+}
+
+// ============================================================
+//  SVG RENDER
+// ============================================================
+function initSVG(){
+  const wrap = document.getElementById('canvas-wrap');
+  const W = wrap.clientWidth;
+  const H = wrap.clientHeight;
+
+  svg = d3.select('#graph-svg').attr('width', W).attr('height', H);
+  svg.selectAll('*').remove();
+
+  // Defs: arrows + gradients
+  const defs = svg.append('defs');
+
+  RTYPE_CONFIG.forEach(rc => {
+    const mid = rc.type.replace(/\s/g,'_');
+    // End arrow marker — refX=9 so filled tip lands right at node edge
+    defs.append('marker')
+      .attr('id', `arrow-end-${mid}`)
+      .attr('viewBox','0 -5 10 10')
+      .attr('refX', 9)
+      .attr('refY', 0)
+      .attr('markerWidth', 7)
+      .attr('markerHeight', 7)
+      .attr('orient', 'auto')
+      .append('path')
+      .attr('d','M0,-5L10,0L0,5Z')
+      .attr('fill', rc.color)
+      .attr('opacity', 0.88);
+  });
+  // No special cross-project marker needed
+
+  // Zoom
+  zoom = d3.zoom()
+    .scaleExtent([0.04, 5])
+    .on('zoom', ev => {
+      lastTransform = ev.transform;
+      g.attr('transform', ev.transform);
+      refreshMinimap();
+    });
+  svg.call(zoom);
+
+  g = svg.append('g');
+
+  // Click background to deselect
+  svg.on('click', () => {
+    clearHighlight();
+    closeDetail();
+    hideCtxMenu();
+  });
+
+  buildLegend();
+}
+
+// ============================================================
+//  NORMAL-VIEW COLLAPSE HELPER
+//  Per-project per-type: if count > COLLAPSE_THRESHOLD and
+//  not in expandedGroups → replace with one virtual "coll node"
+// ============================================================
+function buildDispView(){
+  // group visNodes by (project_id, entity_type), skip global
+  const groups = {};   // "proj::type" -> [node, ...]
+  visNodes.forEach(n => {
+    if(!n.project_id || n.project_id==='global') return;
+    const key = `${n.project_id}::${n.entity_type}`;
+    (groups[key] = groups[key]||[]).push(n);
+  });
+
+  const hiddenIds   = new Set();
+  const collNodes   = [];   // virtual collapsed nodes
+  const collByVirtId = {};  // virtId -> collNode (for edge remapping)
+
+  Object.entries(groups).forEach(([key, nodes]) => {
+    if(nodes.length <= COLLAPSE_THRESHOLD) return;
+    if(expandedGroups.has(key))            return;
+
+    const [proj, type] = key.split('::');
+    let ok=0, warn=0, err=0;
+    nodes.forEach(n => {
+      if(n.health_status==='正常') ok++;
+      else if(n.health_status==='告警') warn++;
+      else err++;
+    });
+    const virtId = `COLL::${key}`;
+    const cNode  = {
+      entity_id:    virtId,
+      entity_name:  type,   // displayed in centre
+      entity_type:  type,
+      project_id:   proj,
+      health_status: err>0?'异常':warn>0?'告警':'正常',
+      _isColl:      true,
+      _collKey:     key,
+      _collNodes:   nodes,
+      _collCount:   nodes.length,
+      _collOk: ok, _collWarn: warn, _collErr: err,
+      _x: undefined, _y: undefined,
+    };
+    collNodes.push(cNode);
+    collByVirtId[virtId] = cNode;
+    nodes.forEach(n => hiddenIds.add(n.entity_id));
+  });
+
+  // dispNodes = non-hidden real nodes + collapsed virtuals
+  const dispNodes = [
+    ...visNodes.filter(n => !hiddenIds.has(n.entity_id)),
+    ...collNodes,
+  ];
+  const dispNodeIds = new Set(dispNodes.map(n => n.entity_id));
+
+  // remap edges: if src/tgt hidden → find its virtual node id
+  const idToVirt = {};
+  Object.entries(collByVirtId).forEach(([vid, cn]) => {
+    cn._collNodes.forEach(n => { idToVirt[n.entity_id] = vid; });
+  });
+
+  // Deduplicate remapped edges
+  const edgeDedup = new Map();   // "srcId|tgtId|relType" -> merged edge obj
+  visEdges.forEach(r => {
+    const sid = idToVirt[r.source_entity_id] || r.source_entity_id;
+    const tid = idToVirt[r.target_entity_id] || r.target_entity_id;
+    if(!dispNodeIds.has(sid) || !dispNodeIds.has(tid)) return;
+    if(sid === tid) return;   // intra-group self-loop
+    const dk = `${sid}|${tid}|${r.relation_type}`;
+    if(!edgeDedup.has(dk)){
+      edgeDedup.set(dk, {
+        ...r,
+        relation_id:      `DRE-${dk}`,
+        source_entity_id: sid,
+        target_entity_id: tid,
+        _mergedCount: 0,
+      });
+    }
+    edgeDedup.get(dk)._mergedCount++;
+  });
+
+  const dispEdges = Array.from(edgeDedup.values());
+  return { dispNodes, dispEdges, collByVirtId };
+}
+
+function renderGraph(){
+  if(!g) initSVG();
+  // Route to aggregate renderer when in aggregate mode
+  if(aggMode){ renderAggregateGraph(); return; }
+  g.selectAll('*').remove();
+
+  const wrap = document.getElementById('canvas-wrap');
+  const W = wrap.clientWidth;
+  const H = wrap.clientHeight;
+
+  // ── Collapse processing ───────────────────────────────────────────────────
+  const { dispNodes, dispEdges, collByVirtId } = buildDispView();
+  window._dispNodes = dispNodes;   // expose for refreshEdges
+
+  // Compute positions using dispNodes (virtual nodes participate in layout)
+  const positions = computeHierarchicalPositions(dispNodes, W, H);
+
+  // Store positions on display nodes
+  dispNodes.forEach(n => {
+    if(!n._x || currentLayoutMode === 'hierarchical'){
+      const p = positions[n.entity_id];
+      if(p){ n._x = p.x; n._y = p.y; }
+    }
+  });
+
+  // Draw project backgrounds using dispNodes
+  const projGroups = {};
+  dispNodes.forEach(n => {
+    if(n.project_id && n.project_id !== 'global'){
+      if(!projGroups[n.project_id]) projGroups[n.project_id] = [];
+      projGroups[n.project_id].push(n);
+    }
+  });
+  
+  const bgGroup = g.append('g').attr('class','project-bgs');
+
+  // Hull helpers now in shared functions above
+  Object.entries(projGroups).forEach(([proj, pnodes]) => {
+    const cfg = PROJ_CONFIG[proj];
+    if(!cfg) return;
+    
+    // Build convex hull from node corners using shared helpers
+    const hull = _buildHullPath(pnodes, 30);
+    if(!hull || !hull.length) return;
+
+    // Store offset for drag
+    if(!window._projOffset) window._projOffset = {};
+    if(!window._projOffset[proj]) window._projOffset[proj] = {dx:0,dy:0};
+    const off = window._projOffset[proj];
+
+    const pathStr = _hullToPath(hull);
+
+    const projG = bgGroup.append('g')
+      .attr('class', `proj-hull-g proj-${proj}`)
+      .attr('transform', `translate(${off.dx},${off.dy})`);
+
+    // Glow / fill
+    projG.append('path')
+      .attr('d', pathStr)
+      .attr('fill', cfg.bgColor)
+      .attr('stroke', cfg.borderColor)
+      .attr('stroke-width', 1.8)
+      .attr('stroke-dasharray', '7,4')
+      .attr('opacity', 1)
+      .style('filter', `drop-shadow(0 0 10px ${cfg.color}33)`);
+
+    // Label
+    const cx = hull.reduce((s,p)=>s+p[0],0)/hull.length;
+    const minY = Math.min(...hull.map(p=>p[1]));
+    projG.append('text')
+      .attr('x', cx).attr('y', minY + 14)
+      .attr('text-anchor','middle')
+      .attr('font-size', 11)
+      .attr('font-family','IBM Plex Mono, monospace')
+      .attr('fill', cfg.color)
+      .attr('opacity', 0.75)
+      .attr('pointer-events','none')
+      .text(`${proj} · ${cfg.name}`);
+
+    // Drag handle on hull path (drag moves all nodes in this project + redraws)
+    const dragProj = d3.drag()
+      .on('start', function(ev){
+        d3.select(this.parentNode).raise();
+        ev.sourceEvent.stopPropagation();
+      })
+      .on('drag', function(ev){
+        ev.sourceEvent.stopPropagation();
+        off.dx += ev.dx;
+        off.dy += ev.dy;
+        // Move the visual group
+        d3.select(this.parentNode).attr('transform',`translate(${off.dx},${off.dy})`);
+        // Move all nodes in this project
+        pnodes.forEach(n => {
+          if(!n._x) return;
+          n._x += ev.dx;
+          n._y += ev.dy;
+          const ng = g.select(`#node-${n.entity_id}`);
+          const nw = n.entity_id==='U-ROOT'?100:NODE_W;
+          const nh = n.entity_id==='U-ROOT'?38:NODE_H;
+          ng.attr('transform',`translate(${n._x-nw/2},${n._y-nh/2})`);
+          refreshEdges(n);
+        });
+        refreshMinimap();
+      });
+
+    projG.select('path').call(dragProj).style('cursor','move');
+  });
+
+  // Helper: get project_id of a node
+  function nodeProj(n){ return (n && n.project_id) || 'global'; }
+
+  // Draw normal edges first, cross-project edges on top  (use dispEdges/dispNodes)
+  const normalEdges = dispEdges.filter(e => {
+    const s = dispNodes.find(n=>n.entity_id===e.source_entity_id);
+    const t = dispNodes.find(n=>n.entity_id===e.target_entity_id);
+    if(!s||!t) return false;
+    return nodeProj(s) === nodeProj(t) || nodeProj(s) === 'global' || nodeProj(t) === 'global';
+  });
+  const crossEdges = dispEdges.filter(e => {
+    const s = dispNodes.find(n=>n.entity_id===e.source_entity_id);
+    const t = dispNodes.find(n=>n.entity_id===e.target_entity_id);
+    if(!s||!t) return false;
+    return nodeProj(s) !== nodeProj(t) && nodeProj(s) !== 'global' && nodeProj(t) !== 'global';
+  });
+
+  function drawEdge(edge, edgeGroup, isCross){
+    const src = dispNodes.find(n=>n.entity_id===edge.source_entity_id);
+    const tgt = dispNodes.find(n=>n.entity_id===edge.target_entity_id);
+    if(!src||!tgt||!src._x||!tgt._x) return;
+
+    const baseColor = RTYPE_MAP[edge.relation_type] || '#64748b';
+    const color     = baseColor;  // same color for all edges
+    const markerId  = `end-${edge.relation_type.replace(/\s/g,'_')}`;
+    const isDashed  = edge.health_status !== '正常';
+
+    const snw = src._isColl ? (NODE_W+14) : src.entity_id==='U-ROOT' ? 100 : NODE_W;
+    const tnw = tgt._isColl ? (NODE_W+14) : tgt.entity_id==='U-ROOT' ? 100 : NODE_W;
+
+    // Exit right edge of src, enter left edge of tgt
+    const sx = src._x + snw/2;
+    const sy = src._y;
+    const tx = tgt._x - tnw/2;
+    const ty = tgt._y;
+
+    let pathD;
+    // Uniform S-curve for all edges (cross-project same as normal)
+    const spanX = tx - sx;
+    const c1x = sx + Math.max(40, spanX * 0.45);
+    const c1y = sy;
+    const c2x = tx - Math.max(40, spanX * 0.45);
+    const c2y = ty;
+    pathD = `M${sx},${sy} C${c1x},${c1y} ${c2x},${c2y} ${tx},${ty}`;
+
+    const pathEl = edgeGroup.append('path')
+      .datum(edge)
+      .attr('class', 'edge-path')
+      .attr('id', `edge-${edge.relation_id}`)
+      .attr('d', pathD)
+      .attr('stroke', color)
+      .attr('stroke-width', 1.5)
+      .attr('stroke-opacity', 0.55)
+      .attr('stroke-dasharray', isDashed ? '5,3' : '6,3')  // dash always set for flow animation
+      .attr('marker-end', `url(#arrow-${markerId})`);
+
+    // Label
+    const lx = (sx + tx) / 2;
+    const ly = (sy + ty) / 2 - 7;
+    const labelG = edgeGroup.append('g').attr('pointer-events','none');
+    labelG.append('text')
+      .datum(edge)
+      .attr('x', lx).attr('y', ly)
+      .attr('text-anchor','middle')
+      .attr('font-size', 9)
+      .attr('font-family','Noto Sans SC, sans-serif')
+      .attr('fill', color)
+      .attr('opacity', 0.65)
+      .text(edge.relation_type);
+
+    pathEl.on('click', (ev,d) => {
+      ev.stopPropagation();
+      hideCtxMenu();
+      showEdgeDetail(d);
+    });
+    pathEl.on('mousemove', (ev,d) => showTooltip(ev, d, 'edge'));
+    pathEl.on('mouseleave', hideTooltip);
+  }
+
+  // Draw normal edges, then cross-project edges on top
+  const edgeGroup = g.append('g').attr('class','edges');
+  normalEdges.forEach(e => drawEdge(e, edgeGroup, false));
+  const crossEdgeGroup = g.append('g').attr('class','cross-edges');
+  crossEdges.forEach(e => drawEdge(e, crossEdgeGroup, true));
+
+  // Draw nodes (dispNodes includes virtual collapsed nodes)
+  const nodeGroup = g.append('g').attr('class','nodes');
+  dispNodes.forEach(node => {
+    if(!node._x) return;
+
+    // ── Collapsed group node ──────────────────────────────────────────────
+    if(node._isColl){
+      _drawCollapsedNode(node, nodeGroup, dispNodes, dispEdges);
+      return;
+    }
+
+    const color = ETYPE_MAP[node.entity_type] || '#64748b';
+    const hColor = node.health_status==='正常' ? '#00d68f' : node.health_status==='告警' ? '#ffcc00' : '#ff4040';
+    const isUser = node.entity_id==='U-ROOT';
+    const nw = isUser ? 100 : NODE_W;
+    const nh = isUser ? 38 : NODE_H;
+
+    const ng = nodeGroup.append('g')
+      .datum(node)
+      .attr('class','node-g')
+      .attr('id', `node-${node.entity_id}`)
+      .attr('transform', `translate(${node._x - nw/2},${node._y - nh/2})`);
+
+    // Drop shadow
+    ng.append('rect')
+      .attr('x',3).attr('y',3)
+      .attr('width',nw).attr('height',nh)
+      .attr('rx',6).attr('ry',6)
+      .attr('fill','rgba(0,0,0,0.45)');
+
+    // Node body
+    ng.append('rect')
+      .attr('class','node-body')
+      .attr('width',nw).attr('height',nh)
+      .attr('rx',6).attr('ry',6)
+      .attr('fill','#0f1e33')
+      .attr('stroke', color)
+      .attr('stroke-width', isUser ? 2 : 1.5);
+
+    // Left accent bar
+    ng.append('rect')
+      .attr('x',0).attr('y',0)
+      .attr('width',4).attr('height',nh)
+      .attr('rx',3).attr('ry',3)
+      .attr('fill',color);
+
+    // Health dot
+    ng.append('circle')
+      .attr('cx', nw-11).attr('cy',10)
+      .attr('r',4)
+      .attr('fill',hColor)
+      .attr('opacity',0.85);
+
+    // Project badge (small)
+    if(!isUser && node.project_id){
+      const pcfg = PROJ_CONFIG[node.project_id];
+      if(pcfg){
+        ng.append('rect')
+          .attr('x', nw-36).attr('y', nh-14)
+          .attr('width',32).attr('height',10)
+          .attr('rx',2)
+          .attr('fill', pcfg.color)
+          .attr('opacity',0.15);
+        ng.append('text')
+          .attr('x',nw-20).attr('y',nh-5)
+          .attr('text-anchor','middle')
+          .attr('font-size',7)
+          .attr('font-family','IBM Plex Mono, monospace')
+          .attr('fill',pcfg.color)
+          .attr('opacity',0.8)
+          .text(node.project_id);
+      }
+    }
+
+    // Node name
+    const displayName = node.entity_name.length > 10 
+      ? node.entity_name.slice(0,9)+'…' 
+      : node.entity_name;
+    ng.append('text')
+      .attr('x', nw/2+2).attr('y', isUser ? nh/2+4 : nh/2-2)
+      .attr('text-anchor','middle')
+      .attr('font-size',12)
+      .attr('font-weight',500)
+      .attr('font-family','Noto Sans SC, sans-serif')
+      .attr('fill','#cce4ff')
+      .attr('pointer-events','none')
+      .text(displayName);
+
+    if(!isUser){
+      ng.append('text')
+        .attr('x',nw/2+2).attr('y',nh-7)
+        .attr('text-anchor','middle')
+        .attr('font-size',8)
+        .attr('font-family','IBM Plex Mono, monospace')
+        .attr('fill',color)
+        .attr('opacity',0.7)
+        .attr('pointer-events','none')
+        .text(node.entity_type);
+    }
+
+    // Drag behavior
+    const drag = d3.drag()
+      .on('start', function(ev){
+        d3.select(this).raise();
+        ev.sourceEvent.stopPropagation();
+      })
+      .on('drag', function(ev,d){
+        d._x = d._x + ev.dx;
+        d._y = d._y + ev.dy;
+        d3.select(this).attr('transform', `translate(${d._x-nw/2},${d._y-nh/2})`);
+        // Update connected edges
+        refreshEdges(d);
+        // Re-draw hull for this node's project
+        if(d.project_id && d.project_id!=='global') refreshProjectHull(d.project_id);
+        refreshMinimap();
+      });
+    ng.call(drag);
+
+    // Click
+    ng.on('click', (ev,d) => {
+      ev.stopPropagation();
+      hideCtxMenu();
+      highlightNode(d.entity_id);
+      showNodeDetail(d);
+    });
+
+    // Right click context menu
+    ng.on('contextmenu', (ev,d) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      ctxTargetNode = d;
+      showCtxMenu(ev.clientX, ev.clientY);
+    });
+
+    // Hover
+    ng.on('mousemove', (ev,d) => showTooltip(ev, d, 'node'));
+    ng.on('mouseleave', hideTooltip);
+  });
+
+  refreshMinimap();
+}
+
+// ============================================================
+//  COLLAPSED NODE RENDERER
+// ============================================================
+function _drawCollapsedNode(node, nodeGroup, dispNodes, dispEdges){
+  const c  = ETYPE_MAP[node.entity_type] || '#64748b';
+  const CW = NODE_W + 14;    // slightly wider than normal node
+  const CH = NODE_H + 14;    // slightly taller
+  const hc = node.health_status==='正常' ? '#00d68f' : node.health_status==='告警' ? '#ffcc00' : '#ff4040';
+
+  const cg = nodeGroup.append('g')
+    .datum(node)
+    .attr('class','coll-node-g')
+    .attr('id', `node-${node.entity_id}`)
+    .attr('transform', `translate(${node._x - CW/2},${node._y - CH/2})`);
+
+  // Stack effect: two offset shadow rects to indicate multiple nodes
+  [-4,-2].forEach((off,i) => {
+    cg.append('rect')
+      .attr('x', 4+off).attr('y', 4+off)
+      .attr('width', CW).attr('height', CH)
+      .attr('rx', 7).attr('fill', '#0a1828')
+      .attr('stroke', c).attr('stroke-width', 0.8).attr('opacity', 0.4+i*0.2);
+  });
+  // Main shadow
+  cg.append('rect').attr('x',3).attr('y',3).attr('width',CW).attr('height',CH)
+    .attr('rx',7).attr('fill','rgba(0,0,0,0.5)');
+  // Body — dashed border = collapsed indicator
+  cg.append('rect').attr('class','coll-body')
+    .attr('width',CW).attr('height',CH).attr('rx',7)
+    .attr('fill','#0f1e33').attr('stroke',c).attr('stroke-width',1.8)
+    .attr('stroke-dasharray','6,2');
+  // Left accent bar
+  cg.append('rect').attr('x',0).attr('y',0).attr('width',5).attr('height',CH)
+    .attr('rx',3).attr('fill',c);
+  // Health dot
+  cg.append('circle').attr('cx',CW-11).attr('cy',11).attr('r',4)
+    .attr('fill',hc).attr('opacity',0.9);
+  // Count badge pill (top-right)
+  const cnt = node._collCount;
+  cg.append('rect').attr('x',CW-42).attr('y',4).attr('width',36).attr('height',14)
+    .attr('rx',7).attr('fill',c).attr('opacity',0.2);
+  cg.append('text').attr('x',CW-24).attr('y',14)
+    .attr('text-anchor','middle').attr('font-size',9)
+    .attr('font-family','IBM Plex Mono,monospace').attr('fill',c).attr('opacity',0.95)
+    .attr('pointer-events','none').text(`×${cnt}`);
+  // Type name (centre)
+  const dispName = node.entity_name.length > 9 ? node.entity_name.slice(0,8)+'…' : node.entity_name;
+  cg.append('text').attr('x',CW/2+2).attr('y',CH/2)
+    .attr('text-anchor','middle').attr('font-size',12).attr('font-weight',600)
+    .attr('font-family','Noto Sans SC,sans-serif').attr('fill','#cce4ff')
+    .attr('pointer-events','none').text(dispName);
+  // Expand hint below
+  cg.append('text').attr('x',CW/2+2).attr('y',CH-7)
+    .attr('text-anchor','middle').attr('font-size',8)
+    .attr('font-family','IBM Plex Mono,monospace').attr('fill',c).attr('opacity',0.6)
+    .attr('pointer-events','none').text('点击展开');
+  // Health mini-bar (right edge)
+  const barX=CW-9, barH=CH-18, barY=10, tot=node._collCount||1;
+  let yOff=barY;
+  [[node._collOk,'#00d68f'],[node._collWarn,'#ffcc00'],[node._collErr,'#ff4040']].forEach(([v,col])=>{
+    if(!v) return;
+    const h=Math.max(3, barH*v/tot);
+    cg.append('rect').attr('x',barX).attr('y',yOff).attr('width',4).attr('height',h)
+      .attr('rx',2).attr('fill',col).attr('opacity',0.85);
+    yOff+=h+1;
+  });
+  // Project badge
+  const pcfg = PROJ_CONFIG[node.project_id];
+  if(pcfg){
+    cg.append('rect').attr('x',6).attr('y',CH-14).attr('width',36).attr('height',10)
+      .attr('rx',2).attr('fill',pcfg.color).attr('opacity',0.15);
+    cg.append('text').attr('x',24).attr('y',CH-5)
+      .attr('text-anchor','middle').attr('font-size',7)
+      .attr('font-family','IBM Plex Mono,monospace').attr('fill',pcfg.color).attr('opacity',0.8)
+      .attr('pointer-events','none').text(node.project_id);
+  }
+
+  // ── Drag ──────────────────────────────────────────────────────────────
+  let _moved = false;
+  cg.call(d3.drag()
+    .on('start', (ev)=>{ _moved=false; d3.select(cg.node()).raise(); ev.sourceEvent.stopPropagation(); })
+    .on('drag',  (ev,d)=>{
+      _moved=true;
+      d._x+=ev.dx; d._y+=ev.dy;
+      d3.select(cg.node()).attr('transform',`translate(${d._x-CW/2},${d._y-CH/2})`);
+      // refreshEdges needs _dispNodes to find this virtual node
+      g.selectAll('.edges path.edge-path, .cross-edges path.edge-path').each(function(e){
+        const src2 = (window._dispNodes||[]).find(n=>n.entity_id===e.source_entity_id);
+        const tgt2 = (window._dispNodes||[]).find(n=>n.entity_id===e.target_entity_id);
+        if(!src2||!tgt2) return;
+        if(src2.entity_id!==d.entity_id && tgt2.entity_id!==d.entity_id) return;
+        const snw2=src2._isColl?CW:(src2.entity_id==='U-ROOT'?100:NODE_W);
+        const tnw2=tgt2._isColl?CW:(tgt2.entity_id==='U-ROOT'?100:NODE_W);
+        const sx2=src2._x+snw2/2, sy2=src2._y, tx2=tgt2._x-tnw2/2, ty2=tgt2._y;
+        const sp2=Math.max(40,(tx2-sx2)*0.45);
+        d3.select(this).attr('d',`M${sx2},${sy2} C${sx2+sp2},${sy2} ${tx2-sp2},${ty2} ${tx2},${ty2}`);
+      });
+      if(d.project_id&&d.project_id!=='global') refreshProjectHull(d.project_id);
+      refreshMinimap();
+    })
+  );
+
+  // ── Click → expand ────────────────────────────────────────────────────
+  cg.on('click', (ev,d) => {
+    if(_moved){ _moved=false; return; }
+    ev.stopPropagation();
+    expandedGroups.add(d._collKey);
+    visNodes.forEach(n=>{ n._x=undefined; n._y=undefined; });
+    renderGraph(); buildSidebar(); updateStats();
+    showNotif(`已展开 ${d.entity_type}（${d._collCount} 个实体）`);
+  });
+
+  // ── Tooltip ───────────────────────────────────────────────────────────
+  cg.on('mousemove', (ev,d) => {
+    const c2 = ETYPE_MAP[d.entity_type]||'#64748b';
+    const hColor = d.health_status==='正常'?'var(--green)':d.health_status==='告警'?'var(--yellow)':'var(--red)';
+    const pcfg2 = PROJ_CONFIG[d.project_id];
+    const tt = document.getElementById('tooltip');
+    tt.innerHTML = `<div class="tt-name" style="color:${c2}">${d.entity_type} <span style="font-size:9px;opacity:.6">聚合</span></div>
+      <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${pcfg2?pcfg2.name:d.project_id}</span></div>
+      <div class="tt-row"><span class="tt-key">节点数</span><span class="tt-val" style="color:${c2}">${d._collCount} 个</span></div>
+      <div class="tt-row"><span class="tt-key">健康分布</span><span class="tt-val">
+        <span style="color:var(--green)">${d._collOk}</span> / <span style="color:var(--yellow)">${d._collWarn}</span> / <span style="color:var(--red)">${d._collErr}</span>
+      </span></div>
+      <div style="margin-top:4px;font-size:10px;color:var(--accent)">点击展开查看全部节点</div>`;
+    tt.classList.add('visible');
+    moveTooltip(ev);
+  });
+  cg.on('mouseleave', hideTooltip);
+}
+
+function isCrossProject(edge){
+  const s = visNodes.find(n=>n.entity_id===edge.source_entity_id);
+  const t = visNodes.find(n=>n.entity_id===edge.target_entity_id);
+  if(!s||!t) return false;
+  const sp = s.project_id||'global', tp = t.project_id||'global';
+  return sp !== tp && sp !== 'global' && tp !== 'global';
+}
+
+function refreshEdges(movedNode){
+  const activeNodes = window._dispNodes || visNodes;
+  // Re-draw edges (both normal and cross-project) connected to moved node
+  g.selectAll('.edges path.edge-path, .cross-edges path.edge-path').each(function(d){
+    const src = activeNodes.find(n=>n.entity_id===d.source_entity_id);
+    const tgt = activeNodes.find(n=>n.entity_id===d.target_entity_id);
+    if(!src||!tgt) return;
+    if(src.entity_id !== movedNode.entity_id && tgt.entity_id !== movedNode.entity_id) return;
+    const snw = src._isColl ? (NODE_W+14) : src.entity_id==='U-ROOT'?100:NODE_W;
+    const tnw = tgt._isColl ? (NODE_W+14) : tgt.entity_id==='U-ROOT'?100:NODE_W;
+    const sx = src._x + snw/2, sy = src._y;
+    const tx = tgt._x - tnw/2, ty = tgt._y;
+    // Uniform S-curve for all edges
+    const spanX = tx - sx;
+    const c1x = sx + Math.max(40, spanX*0.45), c1y = sy;
+    const c2x = tx - Math.max(40, spanX*0.45), c2y = ty;
+    d3.select(this).attr('d', `M${sx},${sy} C${c1x},${c1y} ${c2x},${c2y} ${tx},${ty}`);
+  });
+  // Re-position edge labels
+  g.selectAll('.edges text').each(function(d){
+    const src = activeNodes.find(n=>n.entity_id===d.source_entity_id);
+    const tgt = activeNodes.find(n=>n.entity_id===d.target_entity_id);
+    if(!src||!tgt) return;
+    if(src.entity_id !== movedNode.entity_id && tgt.entity_id !== movedNode.entity_id) return;
+    const snw = src._isColl ? (NODE_W+14) : src.entity_id==='U-ROOT'?100:NODE_W;
+    const tnw = tgt._isColl ? (NODE_W+14) : tgt.entity_id==='U-ROOT'?100:NODE_W;
+    const sx = src._x + snw/2, sy = src._y;
+    const tx = tgt._x - tnw/2, ty = tgt._y;
+    const spanX = tx - sx;
+    const c1x = sx + Math.max(40,spanX*0.45), c2x = tx - Math.max(40,spanX*0.45);
+    const lx = 0.125*sx+0.375*c1x+0.375*c2x+0.125*tx;
+    const ly = 0.125*sy+0.375*c1x*0+0.375*c2x*0+0.125*ty - 7;
+    // simpler midpoint
+    const mx = (sx+tx)/2, my = (sy+ty)/2 - 7;
+    d3.select(this).attr('x',mx).attr('y',my);
+  });
+}
+
+// Shared hull helpers (used by renderGraph and refreshProjectHull)
+function _cross(O,A,B){ return (A[0]-O[0])*(B[1]-O[1])-(A[1]-O[1])*(B[0]-O[0]); }
+function _convexHull(pts){
+  if(pts.length<3) return pts;
+  const s=pts.slice().sort((a,b)=>a[0]===b[0]?a[1]-b[1]:a[0]-b[0]);
+  const lo=[],hi=[];
+  for(const p of s){ while(lo.length>=2&&_cross(lo[lo.length-2],lo[lo.length-1],p)<=0)lo.pop(); lo.push(p); }
+  for(let i=s.length-1;i>=0;i--){ const p=s[i]; while(hi.length>=2&&_cross(hi[hi.length-2],hi[hi.length-1],p)<=0)hi.pop(); hi.push(p); }
+  hi.pop(); lo.pop(); return lo.concat(hi);
+}
+function _expandHull(hull,pad){
+  const cx=hull.reduce((s,p)=>s+p[0],0)/hull.length;
+  const cy=hull.reduce((s,p)=>s+p[1],0)/hull.length;
+  return hull.map(([x,y])=>{const dx=x-cx,dy=y-cy,d=Math.sqrt(dx*dx+dy*dy)||1;return[cx+dx/d*(d+pad),cy+dy/d*(d+pad)];});
+}
+function _hullToPath(hull){
+  if(!hull.length)return'';
+  const pts=hull.concat([hull[0],hull[1]]);
+  let d=`M${pts[0][0]},${pts[0][1]}`;
+  for(let i=0;i<hull.length;i++){
+    const p1=pts[i+1],p2=pts[i+2];
+    d+=` Q${p1[0]},${p1[1]} ${(p1[0]+p2[0])/2},${(p1[1]+p2[1])/2}`;
+  }
+  return d+'Z';
+}
+function _buildHullPath(pnodes, pad=30){
+  const raw=[];
+  pnodes.forEach(n=>{
+    if(!n._x) return;
+    const hw=(n.entity_id==='U-ROOT'?100:NODE_W)/2+4;
+    const hh=(n.entity_id==='U-ROOT'?38:NODE_H)/2+4;
+    raw.push([n._x-hw,n._y-hh],[n._x+hw,n._y-hh],[n._x-hw,n._y+hh],[n._x+hw,n._y+hh]);
+  });
+  if(raw.length<3) return null;
+  return _expandHull(_convexHull(raw), pad);
+}
+
+// Re-draw a project's hull when any of its nodes moves
+function refreshProjectHull(proj){
+  const pnodes = visNodes.filter(n=>n.project_id===proj && n._x);
+  if(!pnodes.length) return;
+  const hull = _buildHullPath(pnodes, 30);
+  if(!hull) return;
+  const pathStr = _hullToPath(hull);
+  // Reset offset — positions are already absolute after a node drag
+  if(!window._projOffset) window._projOffset={};
+  window._projOffset[proj]={dx:0,dy:0};
+  const projG = g.select(`.proj-${proj}`);
+  if(!projG.empty()){
+    projG.attr('transform','translate(0,0)');
+    projG.select('path').attr('d', pathStr);
+    const cx=hull.reduce((s,p)=>s+p[0],0)/hull.length;
+    const minY=Math.min(...hull.map(p=>p[1]));
+    projG.select('text').attr('x',cx).attr('y',minY+14);
+  }
+}
+function highlightNode(nodeId){
+  const connected = new Set([nodeId]);
+  visEdges.forEach(e => {
+    if(e.source_entity_id===nodeId) connected.add(e.target_entity_id);
+    if(e.target_entity_id===nodeId) connected.add(e.source_entity_id);
+  });
+
+  g.selectAll('.node-g').classed('dimmed', d => d && !connected.has(d.entity_id));
+  g.selectAll('.edge-path').classed('dimmed', d => d && !(d.source_entity_id===nodeId||d.target_entity_id===nodeId));
+  g.selectAll('.edge-path').classed('highlighted', d => d && (d.source_entity_id===nodeId||d.target_entity_id===nodeId));
+}
+
+function clearHighlight(){
+  if(!g) return;
+  g.selectAll('.node-g').classed('dimmed', false);
+  g.selectAll('.edge-path').classed('dimmed', false);
+  g.selectAll('.edge-path').classed('highlighted', false);
+}
+
+// ============================================================
+//  MINIMAP
+// ============================================================
+function refreshMinimap(){
+  const mmSvg = d3.select('#minimap-svg');
+  mmSvg.selectAll('*').remove();
+
+  const wrap = document.getElementById('canvas-wrap');
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  const mmW = 168, mmH = 106;
+  const scaleX = mmW/W*0.88, scaleY = mmH/H*0.88;
+  const sc = Math.min(scaleX, scaleY);
+
+  const mmG = mmSvg.append('g').attr('transform',`translate(4,4)`);
+
+  visEdges.forEach(e => {
+    const src = visNodes.find(n=>n.entity_id===e.source_entity_id);
+    const tgt = visNodes.find(n=>n.entity_id===e.target_entity_id);
+    if(!src||!tgt||!src._x||!tgt._x) return;
+    mmG.append('line')
+      .attr('x1',src._x*sc).attr('y1',src._y*sc)
+      .attr('x2',tgt._x*sc).attr('y2',tgt._y*sc)
+      .attr('stroke', RTYPE_MAP[e.relation_type]||'#334')
+      .attr('stroke-width',0.5)
+      .attr('opacity',0.4);
+  });
+
+  visNodes.forEach(n => {
+    if(!n._x) return;
+    mmG.append('rect')
+      .attr('x',n._x*sc-4).attr('y',n._y*sc-3)
+      .attr('width',8).attr('height',5)
+      .attr('rx',1)
+      .attr('fill', ETYPE_MAP[n.entity_type]||'#334')
+      .attr('opacity',0.7);
+  });
+
+  // Viewport
+  const vx = -lastTransform.x/lastTransform.k*sc;
+  const vy = -lastTransform.y/lastTransform.k*sc;
+  const vw = W/lastTransform.k*sc;
+  const vh = H/lastTransform.k*sc;
+  mmSvg.append('rect')
+    .attr('x',4+Math.max(0,vx)).attr('y',4+Math.max(0,vy))
+    .attr('width',Math.min(mmW-8,Math.max(1,vw))).attr('height',Math.min(mmH-8,Math.max(1,vh)))
+    .attr('fill','rgba(26,159,255,0.06)')
+    .attr('stroke','#1a9fff')
+    .attr('stroke-width',0.8);
+}
+
+// ============================================================
+//  SIDEBAR
+// ============================================================
+function buildSidebar(){
+  const container = document.getElementById('sidebar-body');
+  container.innerHTML = '';
+
+  const byType = {};
+  ETYPE_CONFIG.forEach(e => byType[e.type]=[]);
+  visNodes.forEach(n => {
+    if(byType[n.entity_type]) byType[n.entity_type].push(n);
+  });
+
+  let total = 0;
+  ETYPE_CONFIG.forEach(ec => {
+    const nodes = byType[ec.type];
+    if(!nodes.length) return;
+    total += nodes.length;
+
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'etype-group';
+
+    const header = document.createElement('div');
+    header.className = 'etype-header';
+    header.innerHTML = `
+      <div class="etype-dot" style="background:${ec.color}"></div>
+      <span class="etype-name">${ec.type}</span>
+      <span class="etype-num">${nodes.length}</span>
+      <span class="etype-arrow">▶</span>`;
+
+    const list = document.createElement('div');
+    list.className = 'entity-list';
+
+    nodes.forEach(n => {
+      const row = document.createElement('div');
+      row.className = 'entity-row';
+      row.id = `sbrow-${n.entity_id}`;
+      const hClass = n.health_status==='正常'?'hi-ok':n.health_status==='告警'?'hi-warn':'hi-err';
+      const projLabel = n.project_id && n.project_id!=='global' ? n.project_id : '';
+      const displayName = n.entity_name.length > 16 ? n.entity_name.slice(0,15)+'…' : n.entity_name;
+      row.innerHTML = `
+        <div class="health-indicator ${hClass}"></div>
+        <span class="entity-row-name">${displayName}</span>
+        ${projLabel ? `<span class="entity-row-proj">${projLabel}</span>` : ''}`;
+      row.onclick = (ev) => {
+        ev.stopPropagation();
+        document.querySelectorAll('.entity-row.active').forEach(el=>el.classList.remove('active'));
+        row.classList.add('active');
+        highlightNode(n.entity_id);
+        showNodeDetail(n);
+        scrollToNode(n);
+      };
+      list.appendChild(row);
+    });
+
+    header.onclick = () => {
+      list.classList.toggle('open');
+      header.querySelector('.etype-arrow').classList.toggle('open');
     };
 
-    const healthLabel = {
-      all: "全部",
-      ok: "正常",
-      warn: "告警",
-      err: "异常"
+    groupDiv.appendChild(header);
+    groupDiv.appendChild(list);
+    container.appendChild(groupDiv);
+  });
+
+  document.getElementById('sidebar-count').textContent = `${total} 个实体`;
+}
+
+// ============================================================
+//  DETAIL PANEL
+// ============================================================
+function showNodeDetail(node){
+  document.getElementById('detail-panel').classList.add('open');
+  const color = ETYPE_MAP[node.entity_type]||'#64748b';
+  document.getElementById('dp-dot').style.background = color;
+  document.getElementById('dp-title').textContent = node.entity_name;
+
+  const FIELD_LABELS = {
+    entity_id:'实体ID', entity_name:'实体名称', entity_type:'实体类型',
+    project_id:'项目ID', health_status:'健康状态', created_at:'创建时间',
+    updated_at:'更新时间', description:'描述', host:'主机地址', port:'端口',
+    protocol:'协议', tls_version:'TLS版本', method:'HTTP方法', path:'接口路径',
+    version:'版本', auth:'认证方式', replicas:'副本数', image:'镜像',
+    namespace:'命名空间', cpu_request:'CPU配额', memory_request:'内存配额',
+    db_type:'数据库类型', storage_gb:'存储(GB)', max_connections:'最大连接',
+    mw_type:'中间件类型', product:'产品', cluster_nodes:'集群节点',
+    cpu_cores:'CPU核数', memory_gb:'内存(GB)', os:'操作系统',
+    internal_ip:'内网IP', region:'地域', zone:'可用区',
+    metric:'监控指标', threshold:'告警阈值', severity:'严重等级',
+    duration_min:'持续(分钟)', current_value:'当前值',
+  };
+
+  let html = '<div class="detail-section"><div class="detail-section-title">基本属性</div>';
+  const baseFields = ['entity_id','entity_name','entity_type','project_id','health_status','created_at','updated_at'];
+  baseFields.forEach(k => {
+    const v = node[k];
+    if(v===undefined) return;
+    const hClass = k==='health_status' ? (v==='正常'?'ok':v==='告警'?'warn':'err') : '';
+    html += `<div class="detail-row">
+      <span class="detail-key">${FIELD_LABELS[k]||k}</span>
+      <span class="detail-val ${hClass}">${v}</span>
+    </div>`;
+  });
+  html += '</div>';
+
+  // Extra fields
+  const extraFields = Object.keys(node).filter(k => 
+    !baseFields.includes(k) && !k.startsWith('_') && FIELD_LABELS[k]
+  );
+  if(extraFields.length){
+    html += '<div class="detail-section"><div class="detail-section-title">扩展属性</div>';
+    extraFields.forEach(k => {
+      const v = node[k];
+      if(v===undefined) return;
+      html += `<div class="detail-row">
+        <span class="detail-key">${FIELD_LABELS[k]||k}</span>
+        <span class="detail-val">${v}</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  // Connections info
+  const outEdges = visEdges.filter(e=>e.source_entity_id===node.entity_id);
+  const inEdges  = visEdges.filter(e=>e.target_entity_id===node.entity_id);
+  if(outEdges.length || inEdges.length){
+    html += `<div class="detail-section"><div class="detail-section-title">连接关系</div>
+      <div class="detail-row"><span class="detail-key">出边</span><span class="detail-val">${outEdges.length} 条</span></div>
+      <div class="detail-row"><span class="detail-key">入边</span><span class="detail-val">${inEdges.length} 条</span></div>
+    </div>`;
+  }
+
+  document.getElementById('dp-body').innerHTML = html;
+}
+
+function showEdgeDetail(edge){
+  document.getElementById('detail-panel').classList.add('open');
+  const color = RTYPE_MAP[edge.relation_type]||'#64748b';
+  document.getElementById('dp-dot').style.background = color;
+  document.getElementById('dp-title').textContent = `关系·${edge.relation_type}`;
+
+  const srcNode = visNodes.find(n=>n.entity_id===edge.source_entity_id);
+  const tgtNode = visNodes.find(n=>n.entity_id===edge.target_entity_id);
+
+  const FIELD_LABELS = {
+    relation_id:'关系ID', relation_type:'关系类型', source_entity_id:'源端实体',
+    target_entity_id:'目标实体', health_status:'健康状态', created_at:'创建时间',
+    updated_at:'更新时间', latency_ms:'延迟(ms)', qps:'QPS', error_rate:'错误率',
+    algorithm:'负载算法', weight:'权重', pool_size:'连接池', avg_query_ms:'平均查询(ms)',
+    topic:'消息主题', partitions:'分区数', cpu_usage:'CPU使用率', mem_usage:'内存使用率',
+    pod_count:'Pod数量', metric:'监控指标', value:'当前值', trigger_count:'触发次数',
+    cross_project:'跨项目', desc:'说明',
+  };
+
+  const baseFields = ['relation_id','relation_type','source_entity_id','target_entity_id','health_status','created_at','updated_at'];
+  let html = '<div class="detail-section"><div class="detail-section-title">关系信息</div>';
+  baseFields.forEach(k => {
+    let v = edge[k];
+    if(v===undefined) return;
+    if(k==='source_entity_id' && srcNode) v = `${srcNode.entity_name} (${v})`;
+    if(k==='target_entity_id' && tgtNode) v = `${tgtNode.entity_name} (${v})`;
+    const hClass = k==='health_status' ? (v.startsWith('正常')?'ok':v.startsWith('告警')?'warn':'err') : '';
+    html += `<div class="detail-row">
+      <span class="detail-key">${FIELD_LABELS[k]||k}</span>
+      <span class="detail-val ${hClass}">${v}</span>
+    </div>`;
+  });
+  html += '</div>';
+
+  const extraFields = Object.keys(edge).filter(k => !baseFields.includes(k));
+  if(extraFields.length){
+    html += '<div class="detail-section"><div class="detail-section-title">关系属性</div>';
+    extraFields.forEach(k => {
+      const v = edge[k];
+      if(v===undefined) return;
+      html += `<div class="detail-row">
+        <span class="detail-key">${FIELD_LABELS[k]||k}</span>
+        <span class="detail-val">${v}</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  document.getElementById('dp-body').innerHTML = html;
+}
+
+function closeDetail(){
+  document.getElementById('detail-panel').classList.remove('open');
+}
+
+// ============================================================
+//  TOOLTIP
+// ============================================================
+function showTooltip(ev, d, type){
+  const tt = document.getElementById('tooltip');
+  let html = '';
+  if(type==='node'){
+    const color = ETYPE_MAP[d.entity_type]||'#64748b';
+    const hColor = d.health_status==='正常'?'var(--green)':d.health_status==='告警'?'var(--yellow)':'var(--red)';
+    html = `<div class="tt-name" style="color:${color}">${d.entity_name}</div>
+      <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${d.entity_type}</span></div>
+      <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${d.project_id||'-'}</span></div>
+      <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${d.health_status}</span></div>
+      <div class="tt-row"><span class="tt-key">ID</span><span class="tt-val">${d.entity_id}</span></div>`;
+  } else {
+    const color = RTYPE_MAP[d.relation_type]||'#64748b';
+    const hColor = d.health_status==='正常'?'var(--green)':d.health_status==='告警'?'var(--yellow)':'var(--red)';
+    const ttSrc = (window._dispNodes||visNodes).find(n=>n.entity_id===d.source_entity_id);
+    const ttTgt = (window._dispNodes||visNodes).find(n=>n.entity_id===d.target_entity_id);
+    const srcName = ttSrc ? ttSrc.entity_name : d.source_entity_id;
+    const tgtName = ttTgt ? ttTgt.entity_name : d.target_entity_id;
+    const ttCross = ttSrc && ttTgt &&
+      (ttSrc.project_id||'global') !== (ttTgt.project_id||'global') &&
+      (ttSrc.project_id||'global') !== 'global' && (ttTgt.project_id||'global') !== 'global';
+    html = `<div class="tt-name" style="color:${color}">${d.relation_type}${ttCross ? ' <span style=\"font-size:9px;color:var(--text3)\">[跨项目]</span>' : ''}</div>
+      <div class="tt-row"><span class="tt-key">源端</span><span class="tt-val">${srcName}</span></div>
+      <div class="tt-row"><span class="tt-key">目标</span><span class="tt-val">${tgtName}</span></div>
+      <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${d.health_status}</span></div>`;
+  }
+  tt.innerHTML = html;
+  tt.classList.add('visible');
+  moveTooltip(ev);
+}
+
+function moveTooltip(ev){
+  const tt = document.getElementById('tooltip');
+  const x = ev.clientX + 14;
+  const y = ev.clientY - 10;
+  const w = window.innerWidth, h = window.innerHeight;
+  tt.style.left = (x + 250 > w ? ev.clientX - 264 : x) + 'px';
+  tt.style.top  = (y + 120 > h ? ev.clientY - 130 : y) + 'px';
+}
+
+function hideTooltip(){
+  document.getElementById('tooltip').classList.remove('visible');
+}
+
+// ============================================================
+//  CONTEXT MENU
+// ============================================================
+function showCtxMenu(x,y){
+  const menu = document.getElementById('ctx-menu');
+  menu.classList.add('visible');
+  const w = window.innerWidth, h = window.innerHeight;
+  menu.style.left = (x + 155 > w ? x-160 : x) + 'px';
+  menu.style.top  = (y + 200 > h ? y-200 : y) + 'px';
+}
+function hideCtxMenu(){
+  document.getElementById('ctx-menu').classList.remove('visible');
+}
+function ctxFocus(){
+  hideCtxMenu();
+  if(ctxTargetNode){ highlightNode(ctxTargetNode.entity_id); showNodeDetail(ctxTargetNode); }
+}
+function ctxExpand(){
+  hideCtxMenu();
+  if(!ctxTargetNode) return;
+  // Show all hidden neighbors
+  const neighbors = new Set();
+  rawData.relations.forEach(r=>{
+    if(r.source_entity_id===ctxTargetNode.entity_id) neighbors.add(r.target_entity_id);
+    if(r.target_entity_id===ctxTargetNode.entity_id) neighbors.add(r.source_entity_id);
+  });
+  neighbors.forEach(id=>hiddenNodes.delete(id));
+  applyFilters();
+  showNotif(`已展开 ${neighbors.size} 个邻居节点`);
+}
+function ctxHide(){
+  hideCtxMenu();
+  if(!ctxTargetNode) return;
+  hiddenNodes.add(ctxTargetNode.entity_id);
+  applyFilters();
+  showNotif(`节点 "${ctxTargetNode.entity_name}" 已隐藏`, 'warn');
+}
+function ctxDetail(){
+  hideCtxMenu();
+  if(ctxTargetNode){ highlightNode(ctxTargetNode.entity_id); showNodeDetail(ctxTargetNode); }
+}
+function ctxCopyId(){
+  hideCtxMenu();
+  if(!ctxTargetNode) return;
+  navigator.clipboard.writeText(ctxTargetNode.entity_id).catch(()=>{});
+  showNotif(`已复制 ID: ${ctxTargetNode.entity_id}`);
+}
+
+// ============================================================
+//  STATS & LEGEND
+// ============================================================
+function updateStats(){
+  const n = visNodes.length;
+  const e = visEdges.length;
+  const projs = new Set(visNodes.map(nd=>nd.project_id).filter(p=>p&&p!=='global'));
+  const ok = visNodes.filter(nd=>nd.health_status==='正常').length;
+  const warn = visNodes.filter(nd=>nd.health_status==='告警').length;
+  const err = visNodes.filter(nd=>nd.health_status==='异常').length;
+
+  // Header badges
+  document.getElementById('hb-nodes').textContent = `节点 ${n}`;
+  document.getElementById('hb-edges').textContent = `关系 ${e}`;
+  const warnBadge = document.getElementById('hb-warn');
+  const errBadge = document.getElementById('hb-err');
+  if(warn>0){ warnBadge.textContent=`告警 ${warn}`; warnBadge.style.display=''; }
+  else warnBadge.style.display='none';
+  if(err>0){ errBadge.textContent=`异常 ${err}`; errBadge.style.display=''; }
+  else errBadge.style.display='none';
+
+  // Stats bar
+  document.getElementById('st-nodes').textContent=n;
+  document.getElementById('st-edges').textContent=e;
+  document.getElementById('st-projs').textContent=projs.size;
+  document.getElementById('st-ok').textContent=ok;
+  document.getElementById('st-warn').textContent=warn;
+  document.getElementById('st-err').textContent=err;
+
+  // Status bar
+  document.getElementById('sb-n').textContent=n;
+  document.getElementById('sb-e').textContent=e;
+  document.getElementById('sb-p').textContent=projs.size;
+  document.getElementById('sb-ok').textContent=ok;
+  document.getElementById('sb-wa').textContent=warn;
+  document.getElementById('sb-er').textContent=err;
+  document.getElementById('sb-time').textContent=new Date().toLocaleTimeString('zh-CN');
+}
+
+function buildLegend(){
+  const typesEl = document.getElementById('legend-types');
+  typesEl.innerHTML = '';
+  ETYPE_CONFIG.forEach(e => {
+    typesEl.innerHTML += `<div class="legend-row">
+      <div class="legend-swatch" style="background:${e.color}"></div>
+      <span class="legend-label">${e.type}</span>
+    </div>`;
+  });
+
+  const relsEl = document.getElementById('legend-rels');
+  relsEl.innerHTML = '';
+  RTYPE_CONFIG.forEach(r => {
+    relsEl.innerHTML += `<div class="legend-row">
+      <div style="width:12px;height:2px;background:${r.color};flex-shrink:0;margin-top:3px"></div>
+      <span class="legend-label">${r.type}</span>
+    </div>`;
+  });
+
+}
+
+// ============================================================
+//  CONTROLS
+// ============================================================
+function fitView(){
+  const wrap = document.getElementById('canvas-wrap');
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  const xs = visNodes.map(n=>n._x).filter(Boolean);
+  const ys = visNodes.map(n=>n._y).filter(Boolean);
+  if(!xs.length) return;
+  const minX=Math.min(...xs)-NODE_W/2-30, maxX=Math.max(...xs)+NODE_W/2+30;
+  const minY=Math.min(...ys)-NODE_H/2-30, maxY=Math.max(...ys)+NODE_H/2+30;
+  const sc = Math.min(0.95, Math.min(W/(maxX-minX), H/(maxY-minY)));
+  const tx = W/2 - (minX+maxX)/2*sc;
+  const ty = H/2 - (minY+maxY)/2*sc;
+  svg.transition().duration(600).call(zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(sc));
+}
+
+function zoomBy(factor){
+  svg.transition().duration(250).call(zoom.scaleBy, factor);
+}
+
+function toggleFullscreen(){
+  if(!document.fullscreenElement){
+    document.documentElement.requestFullscreen().catch(()=>{});
+  } else {
+    document.exitFullscreen();
+  }
+}
+
+function scrollToNode(node){
+  if(!node._x||!node._y) return;
+  const wrap = document.getElementById('canvas-wrap');
+  const W=wrap.clientWidth, H=wrap.clientHeight;
+  const tx = W/2 - node._x * lastTransform.k;
+  const ty = H/2 - node._y * lastTransform.k;
+  svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(lastTransform.k));
+}
+
+function toggleLayout(){
+  currentLayoutMode = currentLayoutMode==='hierarchical'?'force':'hierarchical';
+  // Reset stored positions
+  visNodes.forEach(n => { n._x = undefined; n._y = undefined; });
+  renderGraph();
+  showNotif(`已切换至${currentLayoutMode==='hierarchical'?'层次布局':'力导向布局'}`);
+}
+
+// ============================================================
+//  REFRESH
+// ============================================================
+function doRefresh(){
+  const btn = document.getElementById('refresh-btn');
+  btn.textContent = '↻ 刷新中…';
+  btn.disabled = true;
+  
+  // Simulate API response: mutate some health states
+  setTimeout(() => {
+    rawData.nodes.forEach(n => {
+      if(Math.random()>0.88){
+        n.health_status = HEALTH_LIST[Math.floor(Math.random()*HEALTH_LIST.length)];
+        n.updated_at = new Date().toISOString().replace('T',' ').split('.')[0];
+      }
+    });
+    rawData.relations.forEach(r => {
+      if(Math.random()>0.92) r.health_status = HEALTH_LIST[Math.floor(Math.random()*HEALTH_LIST.length)];
+    });
+    applyFilters();
+    btn.textContent = '↻ 刷新数据';
+    btn.disabled = false;
+    showNotif('数据已更新', 'ok');
+    document.getElementById('hb-status').textContent = '实时同步';
+  }, 700);
+}
+
+function toggleAuto(){
+  const btn = document.getElementById('auto-btn');
+  if(autoRefreshTimer){
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+    btn.textContent = '▶ 自动刷新';
+    btn.className = 'btn btn-default';
+    showNotif('自动刷新已关闭', 'warn');
+  } else {
+    autoRefreshTimer = setInterval(doRefresh, 15000);
+    btn.textContent = '⏸ 停止刷新';
+    btn.className = 'btn btn-active';
+    showNotif('自动刷新已开启（15s）');
+  }
+}
+
+// ============================================================
+//  ANALYSIS
+// ============================================================
+function showAnalysis(){
+  const total = rawData.nodes.length;
+  const ok = rawData.nodes.filter(n=>n.health_status==='正常').length;
+  const warn = rawData.nodes.filter(n=>n.health_status==='告警').length;
+  const err = rawData.nodes.filter(n=>n.health_status==='异常').length;
+  
+  const byType = {};
+  ETYPE_CONFIG.forEach(e => byType[e.type]=[]);
+  rawData.nodes.forEach(n => { if(byType[n.entity_type]) byType[n.entity_type].push(n); });
+
+  const criticalNodes = rawData.nodes.filter(n=>n.health_status==='异常');
+  const warnNodes = rawData.nodes.filter(n=>n.health_status==='告警');
+
+  let html = `
+    <div style="margin-bottom:14px">
+      <div style="font-size:12px;color:var(--text3);margin-bottom:8px;font-family:'IBM Plex Mono'">整体健康状态</div>
+      <div style="display:flex;gap:12px;margin-bottom:6px">
+        <span style="color:var(--green)">✓ 正常 ${ok}</span>
+        <span style="color:var(--yellow)">⚠ 告警 ${warn}</span>
+        <span style="color:var(--red)">✗ 异常 ${err}</span>
+        <span style="color:var(--text3)">共 ${total} 个节点</span>
+      </div>
+    </div>`;
+
+  if(err>0){
+    html += `<div style="margin-bottom:14px;padding:10px;background:rgba(255,64,64,0.08);border:1px solid rgba(255,64,64,0.2);border-radius:6px">
+      <div style="color:var(--red);font-size:12px;margin-bottom:6px">⚠ 异常节点 (${err})</div>`;
+    criticalNodes.slice(0,5).forEach(n => {
+      html += `<div style="font-size:11px;color:var(--text2);margin-bottom:3px">• ${n.entity_name} (${n.entity_type}) - ${n.project_id}</div>`;
+    });
+    if(criticalNodes.length>5) html += `<div style="font-size:11px;color:var(--text3)">... 还有 ${criticalNodes.length-5} 个</div>`;
+    html += '</div>';
+  }
+
+  if(warn>0){
+    html += `<div style="margin-bottom:14px;padding:10px;background:rgba(255,204,0,0.06);border:1px solid rgba(255,204,0,0.2);border-radius:6px">
+      <div style="color:var(--yellow);font-size:12px;margin-bottom:6px">⚠ 告警节点 (${warn})</div>`;
+    warnNodes.slice(0,4).forEach(n => {
+      html += `<div style="font-size:11px;color:var(--text2);margin-bottom:3px">• ${n.entity_name} (${n.entity_type}) - ${n.project_id}</div>`;
+    });
+    if(warnNodes.length>4) html += `<div style="font-size:11px;color:var(--text3)">... 还有 ${warnNodes.length-4} 个</div>`;
+    html += '</div>';
+  }
+
+  html += `<div style="font-size:12px;color:var(--text3);margin-bottom:8px;font-family:'IBM Plex Mono'">实体分布</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">`;
+  ETYPE_CONFIG.forEach(ec => {
+    const cnt = (byType[ec.type]||[]).length;
+    if(!cnt) return;
+    const errCnt = (byType[ec.type]||[]).filter(n=>n.health_status==='异常').length;
+    html += `<div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:4px;font-size:11px">
+      <span style="color:${ec.color}">${ec.type}</span>
+      <span style="float:right;color:var(--text3)">${cnt}${errCnt?` <span style="color:var(--red)">(${errCnt}异常)</span>`:''}</span>
+    </div>`;
+  });
+  html += '</div>';
+
+  document.getElementById('analysis-body').innerHTML = html;
+  document.getElementById('analysis-modal').classList.add('visible');
+}
+function closeModal(){
+  document.getElementById('analysis-modal').classList.remove('visible');
+}
+
+// ============================================================
+//  NOTIFICATION
+// ============================================================
+let notifTimer = null;
+function showNotif(msg, type='ok'){
+  const el = document.getElementById('notif');
+  el.textContent = msg;
+  el.className = `notif show ${type!=='ok'?type:''}`;
+  if(notifTimer) clearTimeout(notifTimer);
+  notifTimer = setTimeout(()=>{el.classList.remove('show');},3000);
+}
+
+// ============================================================
+//  POPULATE FILTERS FROM APP_CONFIG
+// ============================================================
+function populateFilters(){
+  // Projects
+  const projSel = document.getElementById('proj-select');
+  // Keep the "全部项目" option, append one per project
+  APP_CONFIG.projects.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = `${p.id} · ${p.name}`;
+    projSel.appendChild(opt);
+  });
+
+  // Entity types
+  const etypeSel = document.getElementById('etype-filter');
+  APP_CONFIG.entityTypes.forEach(e => {
+    const opt = document.createElement('option');
+    opt.value = e.type;
+    opt.textContent = e.type;
+    etypeSel.appendChild(opt);
+  });
+
+  // Relation types
+  const rtypeSel = document.getElementById('rtype-filter');
+  APP_CONFIG.relationTypes.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.type;
+    opt.textContent = r.type;
+    rtypeSel.appendChild(opt);
+  });
+  // Cross-project option
+  const crossOpt = document.createElement('option');
+  crossOpt.value = 'cross';
+  crossOpt.textContent = '↔ 跨项目调用';
+  rtypeSel.appendChild(crossOpt);
+}
+
+// ============================================================
+//  EVENT LISTENERS
+// ============================================================
+document.getElementById('etype-filter').addEventListener('change', applyFilters);
+document.getElementById('rtype-filter').addEventListener('change', applyFilters);
+document.getElementById('health-filter').addEventListener('change', applyFilters);
+document.getElementById('proj-select').addEventListener('change', applyFilters);
+
+let searchDebounce;
+document.getElementById('search-inp').addEventListener('input', () => {
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(applyFilters, 280);
+});
+
+document.addEventListener('click', hideCtxMenu);
+document.addEventListener('keydown', e => {
+  if(e.key==='Escape'){ clearHighlight(); closeDetail(); hideCtxMenu(); closeModal(); }
+});
+
+window.addEventListener('resize', () => {
+  const wrap = document.getElementById('canvas-wrap');
+  d3.select('#graph-svg').attr('width',wrap.clientWidth).attr('height',wrap.clientHeight);
+  renderGraph();
+  fitView();
+});
+
+// ============================================================
+//  INIT
+// ============================================================
+
+// ════════════════════════════════════════════════════════════════
+//  SKILL 1 — 部署架构图
+//  Layout: infrastructure layers stacked top→bottom
+//    Layer 0 (top):    用户 / 域名上下文根   ← entry points
+//    Layer 1:          API接口               ← gateway
+//    Layer 2:          应用微服务             ← app tier
+//    Layer 3:          中间件 / 数据库        ← data tier
+//    Layer 4 (bottom): 计算资源              ← infra base
+//  One band per project; nodes drawn as styled "server cards"
+// ════════════════════════════════════════════════════════════════
+
+function showDeployDiagram(){
+  document.getElementById('deploy-panel').classList.add('visible');
+  _renderDeployDiagram();
+}
+
+function _renderDeployDiagram(){
+  // ── Project filter (same as main graph) ────────────────────────────────
+  const selProjs = getSelectedProjects();
+  const allNodes = rawData.nodes.filter(n =>
+    !selProjs || n.project_id === 'global' || selProjs.includes(n.project_id)
+  );
+  const allNodeIds = new Set(allNodes.map(n => n.entity_id));
+  const allRels = rawData.relations.filter(r =>
+    allNodeIds.has(r.source_entity_id) && allNodeIds.has(r.target_entity_id)
+  );
+
+  // ── Layer definition ───────────────────────────────────────────────────
+  const DEPLOY_LAYERS = [
+    { label: '入口层',       types: ['用户','域名上下文根'], color: '#00e5ff' },
+    { label: 'API 层',       types: ['API接口'],             color: '#1a9fff' },
+    { label: '应用层',       types: ['应用微服务'],           color: '#4db8ff' },
+    { label: '数据/中间件',  types: ['数据库','中间件'],      color: '#9d6fff' },
+    { label: '基础设施',     types: ['计算资源','告警'],      color: '#ff8c33' },
+  ];
+  const typeToLayer = {};
+  DEPLOY_LAYERS.forEach((l,i) => l.types.forEach(t => { typeToLayer[t] = i; }));
+
+  // ── Collapse transform: (proj × type) groups exceeding threshold ────────
+  // Key = "proj::type";  deployExpandedGroups holds manually-expanded keys
+  const THRESH = SKILL_COLL_THRESH;
+  const deployHiddenIds = new Set();
+  const deployCollMap   = {};   // virtId -> collNode
+
+  const projIds = [...new Set(
+    allNodes.filter(n=>n.project_id&&n.project_id!=='global').map(n=>n.project_id)
+  )].sort();
+
+  // Collapse is driven by typeToLayer (the single source of truth).
+  // This means: if a type has no layer mapping it is invisible, and if a layer
+  // has types: [] it simply shows nothing — no fallback, no surprise nodes.
+  projIds.forEach(proj => {
+    // Collect all (type, layerIndex) pairs that are actually mapped
+    Object.entries(typeToLayer).forEach(([type, li]) => {
+      const grp = allNodes.filter(n => n.project_id === proj && n.entity_type === type);
+      if(grp.length <= THRESH) return;
+      const key = `${proj}::${type}`;
+      if(deployExpandedGroups.has(key)) return;   // user expanded
+      let ok=0,warn=0,err=0;
+      grp.forEach(n=>{ if(n.health_status==='正常')ok++; else if(n.health_status==='告警')warn++; else err++; });
+      const virtId = `DEPCOLL::${key}`;
+      const vn = {
+        entity_id: virtId, entity_name: type,
+        entity_type: type, project_id: proj,
+        health_status: err>0?'异常':warn>0?'告警':'正常',
+        _isDeplColl: true, _collKey: key, _collLayer: li,
+        _collNodes: grp, _collCount: grp.length,
+        _collOk:ok, _collWarn:warn, _collErr:err,
+      };
+      deployCollMap[virtId] = vn;
+      grp.forEach(n => deployHiddenIds.add(n.entity_id));
+    });
+  });
+
+  const nodes = [
+    // Only real nodes whose type is explicitly mapped to a layer
+    ...allNodes.filter(n => !deployHiddenIds.has(n.entity_id) && typeToLayer[n.entity_type] !== undefined),
+    ...Object.values(deployCollMap),
+  ];
+  const dispIds = new Set(nodes.map(n=>n.entity_id));
+  // Remap edges to virtual nodes, deduplicate
+  const idToVirt = {};
+  Object.values(deployCollMap).forEach(vn => vn._collNodes.forEach(n=>{ idToVirt[n.entity_id]=vn.entity_id; }));
+  const edgeDedup = new Map();
+  allRels.forEach(r => {
+    const sid = idToVirt[r.source_entity_id] || r.source_entity_id;
+    const tid = idToVirt[r.target_entity_id] || r.target_entity_id;
+    if(!dispIds.has(sid)||!dispIds.has(tid)||sid===tid) return;
+    const dk = `${sid}|${tid}|${r.relation_type}`;
+    if(!edgeDedup.has(dk)) edgeDedup.set(dk, {...r, relation_id:`DD-${dk}`, source_entity_id:sid, target_entity_id:tid, _mc:0});
+    edgeDedup.get(dk)._mc++;
+  });
+  const rels = Array.from(edgeDedup.values());
+
+  // ── SVG setup ──────────────────────────────────────────────────────────
+  const svg  = d3.select('#deploy-svg');
+  const wrap = document.getElementById('deploy-canvas');
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  svg.attr('width', W).attr('height', H).selectAll('*').remove();
+
+  // ── Card sizing ────────────────────────────────────────────────────────
+  const CARD_W = 120, CARD_H = 46, CARD_GAP_X = 18, CARD_GAP_Y = 12;
+  const LAYER_H = CARD_H + CARD_GAP_Y * 2 + 18;
+  const PROJ_PAD = { top: 38, bottom: 20, left: 18, right: 18 };
+  const PROJ_GAP = 28;
+
+  const nodePos = {};
+  const projLayouts = {};
+  let projX = 60;
+
+  projIds.forEach(proj => {
+    const pnodes = nodes.filter(n=>n.project_id===proj);
+    const byLayer = Array.from({length: DEPLOY_LAYERS.length}, ()=>[]);
+    pnodes.forEach(n => {
+      // Only place nodes that have an explicit layer mapping; skip unknowns entirely
+      const li = n._isDeplColl ? n._collLayer : typeToLayer[n.entity_type];
+      if(li === undefined) return;  // type not in any layer → do not render
+      byLayer[li].push(n);
+    });
+    const maxCards = Math.max(...byLayer.map(a=>a.length), 1);
+    const projW = maxCards*(CARD_W+CARD_GAP_X)-CARD_GAP_X + PROJ_PAD.left+PROJ_PAD.right;
+    const projH = DEPLOY_LAYERS.length*LAYER_H + PROJ_PAD.top+PROJ_PAD.bottom;
+    projLayouts[proj] = { x:projX, y:60, w:projW, h:projH, byLayer };
+    byLayer.forEach((cards,li) => {
+      const layerY = 60+PROJ_PAD.top+li*LAYER_H+CARD_GAP_Y;
+      cards.forEach((n,ci) => {
+        const cx = projX+PROJ_PAD.left+ci*(CARD_W+CARD_GAP_X);
+        nodePos[n.entity_id] = { x:cx, y:layerY, w:CARD_W, h:CARD_H, layer:li, proj };
+      });
+    });
+    projX += projW+PROJ_GAP;
+  });
+
+  const totalW = projX-PROJ_GAP+60;
+  const totalH = Math.max(...Object.values(projLayouts).map(p=>p.y+p.h))+60;
+
+  // ── Zoom ───────────────────────────────────────────────────────────────
+  const g = svg.append('g');
+  const zoom = d3.zoom().scaleExtent([0.05,3]).on('zoom', ev=>g.attr('transform',ev.transform));
+  svg.call(zoom);
+  const initScale = Math.min((W-40)/totalW,(H-40)/totalH,1);
+  svg.call(zoom.transform, d3.zoomIdentity
+    .translate((W-totalW*initScale)/2,(H-totalH*initScale)/2).scale(initScale));
+
+  // ── Defs ───────────────────────────────────────────────────────────────
+  const defs = svg.append('defs');
+  RTYPE_CONFIG.forEach(rc => {
+    const mid = rc.type.replace(/\s/g,'_');
+    defs.append('marker').attr('id',`dep-arrow-${mid}`)
+      .attr('viewBox','0 -4 8 8').attr('refX',8).attr('refY',0)
+      .attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
+      .append('path').attr('d','M0,-4L8,0L0,4Z').attr('fill',rc.color).attr('opacity',0.7);
+  });
+
+  // ── Project bands ──────────────────────────────────────────────────────
+  projIds.forEach(proj => {
+    const cfg = PROJ_CONFIG[proj]; if(!cfg) return;
+    const pl = projLayouts[proj];
+    g.append('rect').attr('x',pl.x-4).attr('y',pl.y-4)
+      .attr('width',pl.w+8).attr('height',pl.h+8)
+      .attr('rx',14).attr('fill',cfg.bgColor).attr('stroke',cfg.borderColor)
+      .attr('stroke-width',1.5).attr('stroke-dasharray','6,3');
+    g.append('text').attr('x',pl.x+pl.w/2).attr('y',pl.y+22)
+      .attr('text-anchor','middle').attr('font-size',13).attr('font-weight',700)
+      .attr('font-family','Noto Sans SC,sans-serif').attr('fill',cfg.color)
+      .text(`${proj} · ${cfg.name}`);
+    // Only draw layer rows that have at least one mapped type
+    // (layers with types:[] are silently skipped)
+    // Each layer row is a draggable group — dragging shifts ALL nodes in that (proj × layer)
+    const activeLayers = DEPLOY_LAYERS.filter(ld => ld.types.some(t => typeToLayer[t] !== undefined));
+    activeLayers.forEach((ld, _) => {
+      const li   = DEPLOY_LAYERS.indexOf(ld);
+      const ly   = pl.y + PROJ_PAD.top + li * LAYER_H;
+      const rowW = pl.w - PROJ_PAD.left - PROJ_PAD.right + 12;
+
+      // Wrap in a group so we can drag the entire row
+      const rowG = g.append('g')
+        .attr('class', `deploy-layer-row layer-${proj}-${li}`)
+        .attr('transform', `translate(0,0)`)
+        .style('cursor', 'ns-resize');   // vertical drag hint
+
+      rowG.append('rect')
+        .attr('x', pl.x + PROJ_PAD.left - 6).attr('y', ly)
+        .attr('width', rowW).attr('height', LAYER_H - 4)
+        .attr('rx', 6).attr('fill', `${ld.color}08`)
+        .attr('stroke', `${ld.color}28`).attr('stroke-width', 0.8);
+
+      // Drag handle label (left side)
+      rowG.append('text')
+        .attr('x', pl.x + PROJ_PAD.left - 2).attr('y', ly + LAYER_H/2 + 3)
+        .attr('font-size', 9).attr('font-family', 'IBM Plex Mono,monospace')
+        .attr('fill', ld.color).attr('opacity', 0.55).attr('pointer-events', 'none')
+        .text('⠿ ' + ld.label);
+
+      // Layer drag: moves all nodes in this (proj × layer) vertically
+      let _layerDy = 0;
+      rowG.call(
+        d3.drag()
+          .on('start', function(ev){
+            _layerDy = 0;
+            d3.select(this).raise();
+            ev.sourceEvent.stopPropagation();
+          })
+          .on('drag', function(ev){
+            _layerDy += ev.dy;
+            // Move the row background visual
+            d3.select(this).attr('transform', `translate(0,${_layerDy})`);
+            // Move all nodes in this proj × layer
+            const affectedIds = nodes
+              .filter(n => n.project_id === proj && nodePos[n.entity_id] &&
+                           nodePos[n.entity_id].layer === li)
+              .map(n => n.entity_id);
+            affectedIds.forEach(id => {
+              const pos = nodePos[id];
+              if(!pos) return;
+              pos.y += ev.dy;
+              // Update the node visual element position
+              const el = g.select(`#dep-node-${id.replace(/[^a-zA-Z0-9]/g,'-')}`);
+              if(!el.empty()) el.attr('transform', `translate(${pos.x},${pos.y})`);
+              _refreshDeployEdges(id);
+            });
+          })
+          .on('end', function(){
+            // Snap the row background back (nodes already repositioned)
+            d3.select(this).attr('transform', 'translate(0,0)');
+          })
+      );
+    });
+  });
+
+  // ── Edge path helper (shared by draw + drag-refresh) ──────────────────
+  function _deployEdgePath(sp, tp){
+    const CW = CARD_W, CH = CARD_H;
+    const sBottom  = sp.y + CH, tTop     = tp.y;
+    const sCentreX = sp.x + CW/2, tCentreX = tp.x + CW/2;
+    const sRight   = sp.x + CW,   tLeft    = tp.x;
+    const sMidY    = sp.y + CH/2, tMidY    = tp.y + CH/2;
+    const useVertical = sBottom <= tTop + CH * 0.4;
+    if(useVertical){
+      const my = (sBottom + tTop) / 2;
+      return { d: `M${sCentreX},${sBottom} C${sCentreX},${my} ${tCentreX},${my} ${tCentreX},${tTop}`,
+               lx: (sCentreX+tCentreX)/2, ly: my-4 };
+    } else if(sRight > tLeft + 10){
+      const bow = Math.max(50, Math.abs(sMidY-tMidY)*0.6+40);
+      return { d: `M${sCentreX},${sp.y+CH} C${sCentreX},${sp.y+CH+bow} ${tCentreX},${tp.y+CH+bow} ${tCentreX},${tp.y+CH}`,
+               lx: (sCentreX+tCentreX)/2, ly: sp.y+CH+bow*0.7 };
+    } else {
+      const cp = Math.max(40, Math.abs(tLeft-sRight)*0.45);
+      return { d: `M${sRight},${sMidY} C${sRight+cp},${sMidY} ${tLeft-cp},${tMidY} ${tLeft},${tMidY}`,
+               lx: (sRight+tLeft)/2, ly: (sMidY+tMidY)/2-5 };
+    }
+  }
+
+  // ── Edge refresh after node/layer drag ─────────────────────────────────
+  // nodePos entries are mutated in-place during drag; call this to re-path edges
+  function _refreshDeployEdges(movedId){
+    edgeG.selectAll('path.dep-edge').each(function(r){
+      const sp = nodePos[r.source_entity_id], tp = nodePos[r.target_entity_id];
+      if(!sp||!tp) return;
+      if(r.source_entity_id !== movedId && r.target_entity_id !== movedId) return;
+      const {d} = _deployEdgePath(sp, tp);
+      d3.select(this).attr('d', d);
+    });
+    edgeG.selectAll('text.dep-edge-lbl').each(function(r){
+      const sp = nodePos[r.source_entity_id], tp = nodePos[r.target_entity_id];
+      if(!sp||!tp) return;
+      if(r.source_entity_id !== movedId && r.target_entity_id !== movedId) return;
+      const {lx, ly} = _deployEdgePath(sp, tp);
+      d3.select(this).attr('x', lx).attr('y', ly);
+    });
+  }
+
+  // Also expose a full-refresh variant (used by layer drag)
+  function _refreshAllDeployEdges(){
+    edgeG.selectAll('path.dep-edge').each(function(r){
+      const sp = nodePos[r.source_entity_id], tp = nodePos[r.target_entity_id];
+      if(!sp||!tp) return;
+      const {d} = _deployEdgePath(sp, tp);
+      d3.select(this).attr('d', d);
+    });
+    edgeG.selectAll('text.dep-edge-lbl').each(function(r){
+      const sp = nodePos[r.source_entity_id], tp = nodePos[r.target_entity_id];
+      if(!sp||!tp) return;
+      const {lx, ly} = _deployEdgePath(sp, tp);
+      d3.select(this).attr('x', lx).attr('y', ly);
+    });
+  }
+
+  // ── Draw edges with flow animation ─────────────────────────────────────
+  const edgeG = g.append('g').attr('class','deploy-edges');
+  rels.forEach(r => {
+    const sp = nodePos[r.source_entity_id], tp = nodePos[r.target_entity_id];
+    if(!sp||!tp) return;
+    const color    = RTYPE_MAP[r.relation_type]||'#4a6e8a';
+    const markerId = `dep-arrow-${r.relation_type.replace(/\s/g,'_')}`;
+    const {d, lx, ly} = _deployEdgePath(sp, tp);
+    const lbl = r._mc>1 ? `${r.relation_type} ×${r._mc}` : r.relation_type;
+
+    edgeG.append('path').datum(r)
+      .attr('class','dep-edge')
+      .attr('d', d)
+      .attr('stroke', color).attr('stroke-width', r._mc>1 ? 2 : 1.4)
+      .attr('stroke-opacity', 0.7).attr('fill','none')
+      .attr('stroke-dasharray','8,4')
+      .attr('class','dep-edge dep-edge-flow')
+      .attr('marker-end', `url(#${markerId})`);
+
+    edgeG.append('text').datum(r)
+      .attr('class','dep-edge-lbl')
+      .attr('x', lx).attr('y', ly)
+      .attr('text-anchor','middle').attr('font-size', 8)
+      .attr('font-family','IBM Plex Mono,monospace')
+      .attr('fill', color).attr('opacity', 0.65)
+      .attr('pointer-events','none').text(lbl);
+  });
+
+  // ── Draw helper: collapsed card ────────────────────────────────────────
+  function _drawDeployCollCard(n, pos, ldColor){
+    const ng = g.append('g').datum(n)
+      .attr('class','dep-coll-card').attr('style','cursor:pointer')
+      .attr('transform',`translate(${pos.x},${pos.y})`);
+    // stack effect
+    [-3,-1].forEach((off,i)=>{
+      ng.append('rect').attr('x',3+off).attr('y',3+off).attr('width',CARD_W).attr('height',CARD_H)
+        .attr('rx',6).attr('fill','#0a1828').attr('stroke',ldColor)
+        .attr('stroke-width',0.7).attr('opacity',0.35+i*0.25);
+    });
+    ng.append('rect').attr('x',2).attr('y',2).attr('width',CARD_W).attr('height',CARD_H)
+      .attr('rx',6).attr('fill','rgba(0,0,0,0.4)');
+    ng.append('rect').attr('width',CARD_W).attr('height',CARD_H)
+      .attr('rx',6).attr('fill','#0f1e33').attr('stroke',ldColor)
+      .attr('stroke-width',1.6).attr('stroke-dasharray','6,2');
+    ng.append('rect').attr('x',0).attr('y',0).attr('width',5).attr('height',CARD_H)
+      .attr('rx',2).attr('fill',ldColor);
+    const hc = n.health_status==='正常'?'#00d68f':n.health_status==='告警'?'#ffcc00':'#ff4040';
+    ng.append('circle').attr('cx',CARD_W-9).attr('cy',9).attr('r',3.5).attr('fill',hc).attr('opacity',0.9);
+    // count badge
+    ng.append('rect').attr('x',CARD_W-36).attr('y',3).attr('width',30).attr('height',13)
+      .attr('rx',6).attr('fill',ldColor).attr('opacity',0.2);
+    ng.append('text').attr('x',CARD_W-21).attr('y',13).attr('text-anchor','middle')
+      .attr('font-size',9).attr('font-family','IBM Plex Mono,monospace')
+      .attr('fill',ldColor).attr('opacity',0.95).attr('pointer-events','none')
+      .text(`×${n._collCount}`);
+    // health mini-bar
+    const bx=CARD_W-8, bH=CARD_H-16, bY=8, tot=n._collCount||1; let yOff=bY;
+    [[n._collOk,'#00d68f'],[n._collWarn,'#ffcc00'],[n._collErr,'#ff4040']].forEach(([v,col])=>{
+      if(!v)return; const h=Math.max(2,bH*v/tot);
+      ng.append('rect').attr('x',bx).attr('y',yOff).attr('width',4).attr('height',h)
+        .attr('rx',2).attr('fill',col).attr('opacity',0.85); yOff+=h+1;
+    });
+    const dname = n.entity_name.length>10?n.entity_name.slice(0,9)+'…':n.entity_name;
+    ng.append('text').attr('x',CARD_W/2+2).attr('y',CARD_H/2-2)
+      .attr('text-anchor','middle').attr('font-size',11).attr('font-weight',600)
+      .attr('font-family','Noto Sans SC,sans-serif').attr('fill','#cce4ff')
+      .attr('pointer-events','none').text(dname);
+    ng.append('text').attr('x',CARD_W/2+2).attr('y',CARD_H-7)
+      .attr('text-anchor','middle').attr('font-size',8)
+      .attr('font-family','IBM Plex Mono,monospace').attr('fill',ldColor).attr('opacity',0.6)
+      .attr('pointer-events','none').text('点击展开');
+    // click
+    ng.on('click',(ev,d)=>{
+      ev.stopPropagation();
+      deployExpandedGroups.add(d._collKey);
+      _renderDeployDiagram();
+      showNotif(`已展开 ${d.entity_type}（${d._collCount} 个）`);
+    });
+    // tooltip
+    ng.on('mousemove',(ev,d)=>{
+      const hColor=d.health_status==='正常'?'var(--green)':d.health_status==='告警'?'var(--yellow)':'var(--red)';
+      const tt=document.getElementById('tooltip');
+      tt.innerHTML=`<div class="tt-name" style="color:${ldColor}">${d.entity_type} <span style="font-size:9px;opacity:.6">聚合</span></div>
+        <div class="tt-row"><span class="tt-key">节点数</span><span class="tt-val" style="color:${ldColor}">${d._collCount}</span></div>
+        <div class="tt-row"><span class="tt-key">健康</span><span class="tt-val">
+          <span style="color:var(--green)">${d._collOk}</span>/
+          <span style="color:var(--yellow)">${d._collWarn}</span>/
+          <span style="color:var(--red)">${d._collErr}</span></span></div>
+        <div style="margin-top:4px;font-size:10px;color:var(--accent)">单击展开</div>`;
+      tt.classList.add('visible'); moveTooltip(ev);
+    }).on('mouseleave',hideTooltip);
+  }
+
+  // ── Draw node cards ────────────────────────────────────────────────────
+  const nodeG = g.append('g').attr('class','deploy-nodes');
+  nodes.forEach(n => {
+    const pos = nodePos[n.entity_id]; if(!pos) return;
+    const li   = pos.layer;
+    const ld   = DEPLOY_LAYERS[li] || DEPLOY_LAYERS[DEPLOY_LAYERS.length-1];
+
+    if(n._isDeplColl){ _drawDeployCollCard(n, pos, ld.color); return; }
+
+    const hc   = n.health_status==='正常'?'#00d68f':n.health_status==='告警'?'#ffcc00':'#ff4040';
+    const nodeElemId = 'dep-node-' + n.entity_id.replace(/[^a-zA-Z0-9]/g,'-');
+    const ng = nodeG.append('g').datum(n)
+      .attr('id', nodeElemId)
+      .attr('transform',`translate(${pos.x},${pos.y})`);
+    ng.append('rect').attr('x',2).attr('y',2).attr('width',CARD_W).attr('height',CARD_H)
+      .attr('rx',6).attr('fill','rgba(0,0,0,0.4)');
+    ng.append('rect').attr('width',CARD_W).attr('height',CARD_H)
+      .attr('rx',6).attr('fill','#0f1e33').attr('stroke',ld.color).attr('stroke-width',1.2);
+    ng.append('rect').attr('x',0).attr('y',0).attr('width',4).attr('height',CARD_H)
+      .attr('rx',2).attr('fill',ld.color);
+    ng.append('circle').attr('cx',CARD_W-9).attr('cy',9).attr('r',3.5).attr('fill',hc).attr('opacity',0.9);
+    const dname = n.entity_name.length>12?n.entity_name.slice(0,11)+'…':n.entity_name;
+    ng.append('text').attr('x',CARD_W/2+2).attr('y',CARD_H/2-2)
+      .attr('text-anchor','middle').attr('font-size',11).attr('font-weight',600)
+      .attr('font-family','Noto Sans SC,sans-serif').attr('fill','#cce4ff')
+      .attr('pointer-events','none').text(dname);
+    ng.append('text').attr('x',CARD_W/2+2).attr('y',CARD_H-8)
+      .attr('text-anchor','middle').attr('font-size',8)
+      .attr('font-family','IBM Plex Mono,monospace').attr('fill',ld.color).attr('opacity',0.65)
+      .attr('pointer-events','none').text(n.entity_type);
+    let detail='';
+    if(n.internal_ip) detail=n.internal_ip;
+    else if(n.host) detail=n.host;
+    else if(n.replicas) detail=`×${n.replicas} replicas`;
+    else if(n.product) detail=n.product;
+    if(detail) ng.append('text').attr('x',6).attr('y',CARD_H-8)
+      .attr('font-size',7).attr('font-family','IBM Plex Mono,monospace')
+      .attr('fill',ld.color).attr('opacity',0.45).attr('pointer-events','none')
+      .text(detail.length>14?detail.slice(0,13)+'…':detail);
+    // ── Node drag ──────────────────────────────────────────────────────────
+    let _ndMoved = false;
+    ng.style('cursor','grab').call(
+      d3.drag()
+        .on('start', function(ev){
+          _ndMoved = false;
+          d3.select(this).raise().style('cursor','grabbing');
+          ev.sourceEvent.stopPropagation();
+        })
+        .on('drag', function(ev, d){
+          _ndMoved = true;
+          const pos = nodePos[d.entity_id];
+          if(!pos) return;
+          pos.x += ev.dx;
+          pos.y += ev.dy;
+          d3.select(this).attr('transform',`translate(${pos.x},${pos.y})`);
+          _refreshDeployEdges(d.entity_id);
+        })
+        .on('end', function(){ d3.select(this).style('cursor','grab'); })
+    );
+
+    ng.on('mousemove',(ev,d)=>{
+      if(_ndMoved) return;
+      const fields=[];
+      if(d.host) fields.push(`主机: ${d.host}`);
+      if(d.internal_ip) fields.push(`IP: ${d.internal_ip}`);
+      if(d.replicas) fields.push(`副本: ${d.replicas}`);
+      if(d.cpu_cores) fields.push(`CPU: ${d.cpu_cores}核`);
+      if(d.memory_gb) fields.push(`内存: ${d.memory_gb}GB`);
+      if(d.db_type)   fields.push(`DB: ${d.db_type}`);
+      if(d.product)   fields.push(`产品: ${d.product}`);
+      const hColor=d.health_status==='正常'?'var(--green)':d.health_status==='告警'?'var(--yellow)':'var(--red)';
+      const tt=document.getElementById('tooltip');
+      tt.innerHTML=`<div class="tt-name" style="color:${ld.color}">${d.entity_name}</div>
+        <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${d.entity_type}</span></div>
+        <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${d.health_status}</span></div>
+        ${fields.map(f=>`<div class="tt-row"><span class="tt-val">${f}</span></div>`).join('')}`;
+      tt.classList.add('visible'); moveTooltip(ev);
+    }).on('mouseleave',hideTooltip);
+  });
+
+  // ── Legend ─────────────────────────────────────────────────────────────
+  const legDiv = document.getElementById('deploy-legend');
+  const collapsedCount = Object.keys(deployCollMap).length;
+  // Legend only lists layers that have at least one mapped type
+  const legendLayers = DEPLOY_LAYERS.filter(ld => ld.types.some(t => typeToLayer[t] !== undefined));
+  legDiv.innerHTML = legendLayers.map(ld=>
+    `<div class="skill-legend-item"><div class="skill-legend-dot" style="background:${ld.color}"></div>${ld.label}</div>`
+  ).join('') +
+  ['承载','负载均衡','调用'].map(rt=>{
+    const col=RTYPE_MAP[rt]||'#555';
+    return `<div class="skill-legend-item"><div class="skill-legend-line" style="background:${col}"></div>${rt}</div>`;
+  }).join('') +
+  (collapsedCount>0 ? `<button class="btn btn-default" style="margin-left:auto;font-size:10px;padding:2px 8px"
+    onclick="deployExpandedGroups.clear();_renderDeployDiagram()">⊟ 收起全部</button>` :
+    `<div style="margin-left:auto"></div>`) +
+  `<div class="skill-legend-item">
+    <div class="skill-legend-dot" style="background:#00d68f;border-radius:50%"></div>正常
+    <div class="skill-legend-dot" style="background:#ffcc00;border-radius:50%;margin-left:6px"></div>告警
+    <div class="skill-legend-dot" style="background:#ff4040;border-radius:50%;margin-left:6px"></div>异常
+    <span style="margin-left:8px;color:var(--text3)">折叠阈值 ${THRESH}</span>
+  </div>`;
+
+  document.getElementById('deploy-subtitle').textContent =
+    `${allNodes.length} 个节点 · ${allRels.length} 条关系 · ${projIds.length} 个项目` +
+    (collapsedCount>0 ? ` · ${collapsedCount} 组已折叠` : '');
+}
+
+// ════════════════════════════════════════════════════════════════
+//  SKILL 2 — 数据链路图
+//  Shows how data flows from left (user) to right (storage)
+//  across ALL projects simultaneously.
+//  Columns = logical tiers (not projects); rows = individual nodes.
+//  Edges drawn as animated flow paths with colour = relation type.
+// ════════════════════════════════════════════════════════════════
+
+function showDataFlowDiagram(){
+  document.getElementById('dataflow-panel').classList.add('visible');
+  _renderDataFlowDiagram();
+}
+
+function _renderDataFlowDiagram(){
+  // ── Project filter ─────────────────────────────────────────────────────
+  const selProjs = getSelectedProjects();
+  const allNodes = rawData.nodes.filter(n =>
+    !selProjs || n.project_id === 'global' || selProjs.includes(n.project_id)
+  );
+  const allNodeIds = new Set(allNodes.map(n => n.entity_id));
+  const allRels = rawData.relations.filter(r =>
+    allNodeIds.has(r.source_entity_id) && allNodeIds.has(r.target_entity_id)
+  );
+
+  // ── Tier definition ────────────────────────────────────────────────────
+  const FLOW_TIERS = [
+    { label: '用户入口', types: ['用户'],             color: '#00e5ff', icon: '👤' },
+    { label: '访问入口', types: ['域名上下文根'],      color: '#1a9fff', icon: '🌐' },
+    { label: 'API 网关', types: ['API接口'],          color: '#4db8ff', icon: '⚡' },
+    { label: '业务服务', types: ['应用微服务'],        color: '#00d68f', icon: '⚙'  },
+    { label: '数据存储', types: ['数据库','中间件'],   color: '#9d6fff', icon: '💾' },
+    { label: '基础资源', types: ['计算资源'],          color: '#ff8c33', icon: '🖥'  },
+    { label: '可观测性', types: ['告警'],              color: '#ff4040', icon: '🔔' },
+  ];
+  const typeToTier = {};
+  FLOW_TIERS.forEach((t,i) => t.types.forEach(tp => { typeToTier[tp] = i; }));
+
+  // ── Collapse transform: (tier × type) groups exceeding threshold ────────
+  // Key = "ti::type";  dfExpandedGroups holds manually-expanded keys
+  const THRESH = SKILL_COLL_THRESH;
+  const dfHiddenIds = new Set();
+  const dfCollMap   = {};   // virtId -> collNode
+
+  FLOW_TIERS.forEach((td, ti) => {
+    td.types.forEach(type => {
+      const grp = allNodes.filter(n => n.entity_type === type);
+      if(grp.length <= THRESH) return;
+      const key = `${ti}::${type}`;
+      if(dfExpandedGroups.has(key)) return;   // user expanded
+      let ok=0,warn=0,err=0;
+      grp.forEach(n=>{ if(n.health_status==='正常')ok++; else if(n.health_status==='告警')warn++; else err++; });
+      const virtId = `DFCOLL::${key}`;
+      const vn = {
+        entity_id: virtId, entity_name: type,
+        entity_type: type, project_id: null,
+        health_status: err>0?'异常':warn>0?'告警':'正常',
+        _isDFColl: true, _collKey: key, _collTier: ti,
+        _collNodes: grp, _collCount: grp.length,
+        _collOk:ok, _collWarn:warn, _collErr:err,
+      };
+      dfCollMap[virtId] = vn;
+      grp.forEach(n => dfHiddenIds.add(n.entity_id));
+    });
+  });
+
+  const nodes = [
+    ...allNodes.filter(n => !dfHiddenIds.has(n.entity_id)),
+    ...Object.values(dfCollMap),
+  ];
+  const dispIds = new Set(nodes.map(n => n.entity_id));
+  const idToVirt = {};
+  Object.values(dfCollMap).forEach(vn => vn._collNodes.forEach(n => { idToVirt[n.entity_id] = vn.entity_id; }));
+  const edgeDedup = new Map();
+  allRels.forEach(r => {
+    const sid = idToVirt[r.source_entity_id] || r.source_entity_id;
+    const tid = idToVirt[r.target_entity_id] || r.target_entity_id;
+    if(!dispIds.has(sid)||!dispIds.has(tid)||sid===tid) return;
+    const dk = `${sid}|${tid}|${r.relation_type}`;
+    if(!edgeDedup.has(dk)) edgeDedup.set(dk, {...r, relation_id:`DFE-${dk}`, source_entity_id:sid, target_entity_id:tid, _mc:0});
+    edgeDedup.get(dk)._mc++;
+  });
+  const rels = Array.from(edgeDedup.values());
+
+  // ── SVG setup ──────────────────────────────────────────────────────────
+  if(!document.getElementById('df-keyframes')){
+    const st = document.createElement('style'); st.id = 'df-keyframes';
+    st.textContent = `@keyframes df-flow{from{stroke-dashoffset:24}to{stroke-dashoffset:0}} .df-edge{animation:df-flow 1.8s linear infinite}`;
+    document.head.appendChild(st);
+  }
+  const svg  = d3.select('#dataflow-svg');
+  const wrap = document.getElementById('dataflow-canvas');
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  svg.attr('width',W).attr('height',H).selectAll('*').remove();
+
+  // ── Sizing & layout ────────────────────────────────────────────────────
+  const NODE_W=130, NODE_H=44, NODE_GAP_Y=10;
+  const TIER_GAP=60, TIER_HEADER_H=36, PAD_TOP=20, PAD_LEFT=30;
+
+  // Build display tier groups (virtual nodes go in their tier slot)
+  const tierGroups = FLOW_TIERS.map(()=>[]);
+  nodes.forEach(n => {
+    const ti = n._isDFColl ? n._collTier : typeToTier[n.entity_type];
+    if(ti !== undefined) tierGroups[ti].push(n);
+  });
+  tierGroups.forEach(grp => grp.sort((a,b)=>{
+    if(a.project_id!==b.project_id) return (a.project_id||'').localeCompare(b.project_id||'');
+    return a.entity_name.localeCompare(b.entity_name);
+  }));
+
+  const tierX=[], tierW=NODE_W+20;
+  const maxTierH = Math.max(...tierGroups.map(g=> TIER_HEADER_H+g.length*(NODE_H+NODE_GAP_Y)));
+  let cx = PAD_LEFT+tierW/2;
+  FLOW_TIERS.forEach((_,ti)=>{ tierX.push(cx); cx+=tierW+TIER_GAP; });
+  const totalW = cx-TIER_GAP+PAD_LEFT;
+  const totalH = PAD_TOP+maxTierH+40;
+
+  const nodePos={};
+  tierGroups.forEach((grp,ti)=>{
+    const baseY=PAD_TOP+TIER_HEADER_H;
+    grp.forEach((n,ri)=>{
+      nodePos[n.entity_id]={ x:tierX[ti]-NODE_W/2, y:baseY+ri*(NODE_H+NODE_GAP_Y), tier:ti };
+    });
+  });
+
+  // ── Zoom ───────────────────────────────────────────────────────────────
+  const g = svg.append('g');
+  const zoom=d3.zoom().scaleExtent([0.05,3]).on('zoom',ev=>g.attr('transform',ev.transform));
+  svg.call(zoom);
+  const initScale=Math.min((W-60)/totalW,(H-60)/totalH,0.95);
+  svg.call(zoom.transform,d3.zoomIdentity
+    .translate((W-totalW*initScale)/2+30,(H-totalH*initScale)/2).scale(initScale));
+
+  // ── Defs ───────────────────────────────────────────────────────────────
+  const defs=svg.append('defs');
+  RTYPE_CONFIG.forEach(rc=>{
+    const mid=rc.type.replace(/\s/g,'_');
+    defs.append('marker').attr('id',`df-arrow-${mid}`)
+      .attr('viewBox','0 -4 8 8').attr('refX',8).attr('refY',0)
+      .attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
+      .append('path').attr('d','M0,-4L8,0L0,4Z').attr('fill',rc.color).attr('opacity',0.75);
+  });
+
+  // ── Tier column backgrounds ────────────────────────────────────────────
+  const bgG=g.append('g');
+  FLOW_TIERS.forEach((td,ti)=>{
+    const colH=PAD_TOP+TIER_HEADER_H+tierGroups[ti].length*(NODE_H+NODE_GAP_Y)+20;
+    const bx=tierX[ti]-tierW/2-8;
+    bgG.append('rect').attr('x',bx).attr('y',PAD_TOP-8)
+      .attr('width',tierW+16).attr('height',Math.max(colH,80))
+      .attr('rx',10).attr('fill',`${td.color}07`).attr('stroke',`${td.color}22`).attr('stroke-width',1);
+    bgG.append('rect').attr('x',tierX[ti]-56).attr('y',PAD_TOP)
+      .attr('width',112).attr('height',26).attr('rx',13)
+      .attr('fill',`${td.color}18`).attr('stroke',td.color).attr('stroke-width',0.8);
+    bgG.append('text').attr('x',tierX[ti]).attr('y',PAD_TOP+17)
+      .attr('text-anchor','middle').attr('font-size',11).attr('font-weight',700)
+      .attr('font-family','Noto Sans SC,sans-serif').attr('fill',td.color)
+      .text(`${td.icon} ${td.label}`);
+  });
+
+  // ── Flow edges ─────────────────────────────────────────────────────────
+  const edgeG=g.append('g');
+  rels.forEach(r=>{
+    const sp=nodePos[r.source_entity_id], tp=nodePos[r.target_entity_id];
+    if(!sp||!tp) return;
+    const color=RTYPE_MAP[r.relation_type]||'#4a6e8a';
+    const sx=sp.x+NODE_W, sy=sp.y+NODE_H/2, tx=tp.x, ty=tp.y+NODE_H/2;
+    const isForward=tp.tier>=sp.tier;
+    if(!isForward&&sp.tier-tp.tier>2) return;
+    const cpX=(sx+tx)/2;
+    const pw = isForward ? (r._mc>1?2.2:1.6) : 0.8;
+    const path=edgeG.append('path')
+      .attr('d',`M${sx},${sy} C${cpX},${sy} ${cpX},${ty} ${tx},${ty}`)
+      .attr('stroke',color).attr('stroke-width',pw)
+      .attr('stroke-opacity',isForward?0.55:0.25).attr('fill','none')
+      .attr('stroke-dasharray',isForward?'8,4':'4,4')
+      .attr('marker-end',`url(#df-arrow-${r.relation_type.replace(/\s/g,'_')})`);
+    if(isForward) path.attr('class','df-edge');
+    if(isForward){
+      const lbl = r._mc>1 ? `${r.relation_type} ×${r._mc}` : r.relation_type;
+      edgeG.append('text').attr('x',(sx+tx)/2).attr('y',(sy+ty)/2-5)
+        .attr('text-anchor','middle').attr('font-size',8)
+        .attr('font-family','Noto Sans SC,sans-serif')
+        .attr('fill',color).attr('opacity',0.55).attr('pointer-events','none').text(lbl);
+    }
+  });
+
+  // ── Draw helper: collapsed card ────────────────────────────────────────
+  function _drawDFCollCard(n, pos, tdColor){
+    const ng=g.append('g').datum(n)
+      .attr('class','df-coll-card').attr('style','cursor:pointer')
+      .attr('transform',`translate(${pos.x},${pos.y})`);
+    [-3,-1].forEach((off,i)=>{
+      ng.append('rect').attr('x',3+off).attr('y',3+off).attr('width',NODE_W).attr('height',NODE_H)
+        .attr('rx',6).attr('fill','#0a1828').attr('stroke',tdColor)
+        .attr('stroke-width',0.7).attr('opacity',0.35+i*0.25);
+    });
+    ng.append('rect').attr('x',2).attr('y',2).attr('width',NODE_W).attr('height',NODE_H)
+      .attr('rx',6).attr('fill','rgba(0,0,0,0.4)');
+    ng.append('rect').attr('width',NODE_W).attr('height',NODE_H)
+      .attr('rx',6).attr('fill','#0f1e33').attr('stroke',tdColor)
+      .attr('stroke-width',1.6).attr('stroke-dasharray','6,2');
+    ng.append('rect').attr('x',0).attr('y',0).attr('width',5).attr('height',NODE_H)
+      .attr('rx',2).attr('fill',tdColor);
+    const hc=n.health_status==='正常'?'#00d68f':n.health_status==='告警'?'#ffcc00':'#ff4040';
+    ng.append('circle').attr('cx',NODE_W-9).attr('cy',9).attr('r',3.5).attr('fill',hc).attr('opacity',0.9);
+    ng.append('rect').attr('x',NODE_W-36).attr('y',3).attr('width',30).attr('height',13)
+      .attr('rx',6).attr('fill',tdColor).attr('opacity',0.2);
+    ng.append('text').attr('x',NODE_W-21).attr('y',13).attr('text-anchor','middle')
+      .attr('font-size',9).attr('font-family','IBM Plex Mono,monospace')
+      .attr('fill',tdColor).attr('opacity',0.95).attr('pointer-events','none').text(`×${n._collCount}`);
+    // health bar
+    const bx=NODE_W-8, bH=NODE_H-16, bY=8, tot=n._collCount||1; let yOff=bY;
+    [[n._collOk,'#00d68f'],[n._collWarn,'#ffcc00'],[n._collErr,'#ff4040']].forEach(([v,col])=>{
+      if(!v)return; const h=Math.max(2,bH*v/tot);
+      ng.append('rect').attr('x',bx).attr('y',yOff).attr('width',4).attr('height',h)
+        .attr('rx',2).attr('fill',col).attr('opacity',0.85); yOff+=h+1;
+    });
+    const dname=n.entity_name.length>11?n.entity_name.slice(0,10)+'…':n.entity_name;
+    ng.append('text').attr('x',NODE_W/2+2).attr('y',NODE_H/2-1)
+      .attr('text-anchor','middle').attr('font-size',11).attr('font-weight',600)
+      .attr('font-family','Noto Sans SC,sans-serif').attr('fill','#cce4ff')
+      .attr('pointer-events','none').text(dname);
+    ng.append('text').attr('x',NODE_W/2+2).attr('y',NODE_H-7)
+      .attr('text-anchor','middle').attr('font-size',8)
+      .attr('font-family','IBM Plex Mono,monospace').attr('fill',tdColor).attr('opacity',0.6)
+      .attr('pointer-events','none').text('点击展开');
+    ng.on('click',(ev,d)=>{
+      ev.stopPropagation();
+      dfExpandedGroups.add(d._collKey);
+      _renderDataFlowDiagram();
+      showNotif(`已展开 ${d.entity_type}（${d._collCount} 个）`);
+    });
+    ng.on('mousemove',(ev,d)=>{
+      const hColor=d.health_status==='正常'?'var(--green)':d.health_status==='告警'?'var(--yellow)':'var(--red)';
+      const tt=document.getElementById('tooltip');
+      tt.innerHTML=`<div class="tt-name" style="color:${tdColor}">${d.entity_type} <span style="font-size:9px;opacity:.6">聚合</span></div>
+        <div class="tt-row"><span class="tt-key">节点数</span><span class="tt-val" style="color:${tdColor}">${d._collCount}</span></div>
+        <div class="tt-row"><span class="tt-key">健康</span><span class="tt-val">
+          <span style="color:var(--green)">${d._collOk}</span>/
+          <span style="color:var(--yellow)">${d._collWarn}</span>/
+          <span style="color:var(--red)">${d._collErr}</span></span></div>
+        <div style="margin-top:4px;font-size:10px;color:var(--accent)">单击展开</div>`;
+      tt.classList.add('visible'); moveTooltip(ev);
+    }).on('mouseleave',hideTooltip);
+  }
+
+  // ── Draw nodes ─────────────────────────────────────────────────────────
+  const nodeG=g.append('g');
+  nodes.forEach(n=>{
+    const pos=nodePos[n.entity_id]; if(!pos) return;
+    const td=FLOW_TIERS[pos.tier];
+    if(n._isDFColl){ _drawDFCollCard(n,pos,td.color); return; }
+
+    const hc=n.health_status==='正常'?'#00d68f':n.health_status==='告警'?'#ffcc00':'#ff4040';
+    const pcfg=PROJ_CONFIG[n.project_id];
+    const ng=nodeG.append('g').datum(n).attr('transform',`translate(${pos.x},${pos.y})`);
+    ng.append('rect').attr('x',2).attr('y',2).attr('width',NODE_W).attr('height',NODE_H)
+      .attr('rx',6).attr('fill','rgba(0,0,0,0.4)');
+    ng.append('rect').attr('width',NODE_W).attr('height',NODE_H)
+      .attr('rx',6).attr('fill','#0f1e33').attr('stroke',td.color).attr('stroke-width',1.3);
+    ng.append('rect').attr('x',0).attr('y',0).attr('width',4).attr('height',NODE_H)
+      .attr('rx',2).attr('fill',td.color);
+    ng.append('circle').attr('cx',NODE_W-9).attr('cy',9).attr('r',3.5).attr('fill',hc).attr('opacity',0.9);
+    if(pcfg){
+      ng.append('rect').attr('x',6).attr('y',NODE_H-14).attr('width',34).attr('height',10)
+        .attr('rx',2).attr('fill',pcfg.color).attr('opacity',0.18);
+      ng.append('text').attr('x',23).attr('y',NODE_H-5).attr('text-anchor','middle')
+        .attr('font-size',7).attr('font-family','IBM Plex Mono,monospace')
+        .attr('fill',pcfg.color).attr('opacity',0.8).attr('pointer-events','none').text(n.project_id);
+    }
+    const dname=n.entity_name.length>13?n.entity_name.slice(0,12)+'…':n.entity_name;
+    ng.append('text').attr('x',NODE_W/2+2).attr('y',NODE_H/2-1)
+      .attr('text-anchor','middle').attr('font-size',11).attr('font-weight',600)
+      .attr('font-family','Noto Sans SC,sans-serif').attr('fill','#cce4ff')
+      .attr('pointer-events','none').text(dname);
+    ng.append('text').attr('x',NODE_W/2+2).attr('y',NODE_H-7)
+      .attr('text-anchor','middle').attr('font-size',8)
+      .attr('font-family','IBM Plex Mono,monospace').attr('fill',td.color).attr('opacity',0.6)
+      .attr('pointer-events','none').text(n.entity_type);
+    ng.on('mousemove',(ev,d)=>{
+      const hColor=d.health_status==='正常'?'var(--green)':d.health_status==='告警'?'var(--yellow)':'var(--red)';
+      const inRels=rels.filter(r=>r.target_entity_id===d.entity_id);
+      const outRels=rels.filter(r=>r.source_entity_id===d.entity_id);
+      const tt=document.getElementById('tooltip');
+      tt.innerHTML=`<div class="tt-name" style="color:${td.color}">${d.entity_name}</div>
+        <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${d.entity_type}</span></div>
+        <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${pcfg?pcfg.name:d.project_id||'—'}</span></div>
+        <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${d.health_status}</span></div>
+        <div class="tt-row"><span class="tt-key">上游</span><span class="tt-val">${inRels.length} 条</span></div>
+        <div class="tt-row"><span class="tt-key">下游</span><span class="tt-val">${outRels.length} 条</span></div>`;
+      tt.classList.add('visible'); moveTooltip(ev);
+    }).on('mouseleave',hideTooltip);
+  });
+
+  // ── Legend ─────────────────────────────────────────────────────────────
+  const collapsedCount=Object.keys(dfCollMap).length;
+  const legDiv=document.getElementById('dataflow-legend');
+  legDiv.innerHTML=FLOW_TIERS.map(td=>
+    `<div class="skill-legend-item"><div class="skill-legend-dot" style="background:${td.color}"></div>${td.icon} ${td.label}</div>`
+  ).join('')+'<div style="width:1px;height:14px;background:var(--border);margin:0 4px"></div>'+
+  RTYPE_CONFIG.map(rc=>
+    `<div class="skill-legend-item"><div class="skill-legend-line" style="background:${rc.color}"></div>${rc.type}</div>`
+  ).join('')+
+  (collapsedCount>0?`<button class="btn btn-default" style="margin-left:auto;font-size:10px;padding:2px 8px"
+    onclick="dfExpandedGroups.clear();_renderDataFlowDiagram()">⊟ 收起全部</button>`:`<div style="margin-left:auto"></div>`)+
+  `<span style="color:var(--text3);font-size:10px">折叠阈值 ${THRESH}</span>`;
+
+  document.getElementById('dataflow-subtitle').textContent =
+    `${allNodes.length} 个节点 · ${allRels.length} 条关系 · 数据从左向右流动` +
+    (collapsedCount>0?` · ${collapsedCount} 组已折叠`:'');
+}
+
+// ── Shared skill utils ───────────────────────────────────────────────────
+function closeSkillPanel(id){
+  document.getElementById(id).classList.remove('visible');
+}
+function exportSkillSVG(svgId, filename){
+  const svgEl = document.getElementById(svgId);
+  const serializer = new XMLSerializer();
+  let src = serializer.serializeToString(svgEl);
+  src = '<?xml version="1.0" standalone="no"?>\r\n' + src;
+  const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(src);
+  const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+  a.click();
+  showNotif(`已导出 ${filename}`);
+}
+
+// ── Skill runtime bridge ────────────────────────────────────────────────
+const ENTITY_ALIAS = {
+  all: 'all',
+  api: 'API接口',
+  service: '应用微服务',
+  db: '数据库',
+  middleware: '中间件',
+  compute: '计算资源',
+  alarm: '告警',
+  user: '用户',
+  domain: '域名上下文根',
+  'api接口': 'API接口',
+  '应用微服务': '应用微服务',
+  '数据库': '数据库',
+  '中间件': '中间件',
+  '计算资源': '计算资源',
+  '告警': '告警',
+  '用户': '用户',
+  '域名上下文根': '域名上下文根'
+};
+
+const RELATION_ALIAS = {
+  all: 'all',
+  access: '访问',
+  call: '调用',
+  lb: '负载均衡',
+  host: '承载',
+  monitor: '监控',
+  '访问': '访问',
+  '调用': '调用',
+  '负载均衡': '负载均衡',
+  '承载': '承载',
+  '监控': '监控',
+  cross: 'cross',
+  '跨项目': 'cross'
+};
+
+const HEALTH_ALIAS = {
+  all: 'all',
+  ok: '正常',
+  warn: '告警',
+  err: '异常',
+  normal: '正常',
+  warning: '告警',
+  error: '异常',
+  '正常': '正常',
+  '告警': '告警',
+  '异常': '异常'
+};
+
+let skillPromptText = String((SKILL_STATE && SKILL_STATE.prompt) || '');
+
+function normalizeSkillFilterPatch(patch){
+  const input = patch && typeof patch === 'object' ? patch : {};
+  const next = {};
+  const projectSet = new Set(PROJS);
+  const entitySet = new Set(APP_CONFIG.entityTypes.map(e => e.type));
+  const relationSet = new Set(APP_CONFIG.relationTypes.map(r => r.type));
+
+  if(input.project !== undefined && input.project !== null){
+    const raw = String(input.project).trim();
+    const upper = raw.toUpperCase();
+    if(!raw || raw === 'all' || raw === '全部') next.project = 'all';
+    else if(projectSet.has(raw)) next.project = raw;
+    else if(projectSet.has(upper)) next.project = upper;
+  }
+
+  if(input.entityType !== undefined && input.entityType !== null){
+    const raw = String(input.entityType).trim().toLowerCase();
+    const mapped = ENTITY_ALIAS[raw];
+    if(!raw || raw === 'all' || raw === '全部') next.entityType = 'all';
+    else if(mapped && entitySet.has(mapped)) next.entityType = mapped;
+  }
+
+  if(input.relationType !== undefined && input.relationType !== null){
+    const raw = String(input.relationType).trim().toLowerCase();
+    const mapped = RELATION_ALIAS[raw];
+    if(!raw || raw === 'all' || raw === '全部') next.relationType = 'all';
+    else if(mapped === 'cross') next.relationType = 'cross';
+    else if(mapped && relationSet.has(mapped)) next.relationType = mapped;
+  }
+
+  if(input.health !== undefined && input.health !== null){
+    const raw = String(input.health).trim().toLowerCase();
+    const mapped = HEALTH_ALIAS[raw];
+    if(!raw || raw === 'all' || raw === '全部') next.health = 'all';
+    else if(mapped === '正常' || mapped === '告警' || mapped === '异常') next.health = mapped;
+  }
+
+  if(input.keyword !== undefined && input.keyword !== null){
+    next.keyword = String(input.keyword).trim().slice(0, 80);
+  }
+
+  return next;
+}
+
+function inferSkillFiltersFromPrompt(promptText){
+  const text = String(promptText || '').trim();
+  if(!text) return {};
+
+  const low = text.toLowerCase();
+  const compact = low.replace(/\s+/g, '');
+  const inferred = {};
+
+  if(/全部项目|所有项目|跨项目|allprojects/.test(compact)){
+    inferred.project = 'all';
+  } else {
+    const upperText = text.toUpperCase();
+    const matchedProject = PROJS.find(p => upperText.includes(String(p).toUpperCase()));
+    if(matchedProject) inferred.project = matchedProject;
+    else if(/p001|电商/.test(compact)) inferred.project = 'P001';
+    else if(/p002|支付|金融/.test(compact)) inferred.project = 'P002';
+  }
+
+  const entityHints = [
+    ['API接口', ['api', '接口']],
+    ['应用微服务', ['服务', '微服务', 'svc']],
+    ['数据库', ['数据库', 'db', 'mysql', 'postgres', 'oracle']],
+    ['中间件', ['中间件', 'redis', 'kafka', 'mq', 'es']],
+    ['计算资源', ['计算', '节点', 'k8s', 'vm']],
+    ['告警', ['告警', 'alarm']],
+    ['用户', ['用户']],
+    ['域名上下文根', ['域名']]
+  ];
+  for(const [label, hints] of entityHints){
+    if(hints.some(h => low.includes(h))){
+      inferred.entityType = label;
+      break;
+    }
+  }
+
+  const relationHints = [
+    ['访问', ['访问']],
+    ['调用', ['调用']],
+    ['负载均衡', ['负载', 'lb']],
+    ['承载', ['承载', '部署到', '运行在']],
+    ['监控', ['监控']]
+  ];
+  for(const [label, hints] of relationHints){
+    if(hints.some(h => low.includes(h))){
+      inferred.relationType = label;
+      break;
+    }
+  }
+
+  if(/异常|故障|error|err/.test(low)) inferred.health = '异常';
+  else if(/告警|warn|warning/.test(low)) inferred.health = '告警';
+  else if(/正常|healthy|\bok\b/.test(low)) inferred.health = '正常';
+
+  const explicitKeyword = text.match(/(?:关键词|关键字|搜索|查找)\s*[:：]?\s*([^\n,，;；]+)/i);
+  if(explicitKeyword && explicitKeyword[1]){
+    inferred.keyword = explicitKeyword[1].trim().slice(0, 80);
+  } else {
+    const quoted = text.match(/["“]([^"”]{1,80})["”]/);
+    if(quoted && quoted[1]) inferred.keyword = quoted[1].trim().slice(0, 80);
+  }
+
+  return normalizeSkillFilterPatch(inferred);
+}
+
+function getCurrentUiFilters(){
+  const projSel = document.getElementById('proj-select');
+  const selectedProjects = Array.from(projSel.selectedOptions).map(o => o.value);
+  const project = selectedProjects.length && !selectedProjects.includes('all') ? selectedProjects[0] : 'all';
+  return {
+    project,
+    entityType: document.getElementById('etype-filter').value || 'all',
+    relationType: document.getElementById('rtype-filter').value || 'all',
+    health: document.getElementById('health-filter').value || 'all',
+    keyword: document.getElementById('search-inp').value.trim()
+  };
+}
+
+function setUiFilters(filters){
+  const merged = { ...DEFAULT_SKILL_FILTERS, ...(filters || {}) };
+  const projSel = document.getElementById('proj-select');
+  const project = merged.project && merged.project !== 'all' ? merged.project : 'all';
+  const hasProject = project !== 'all' && Array.from(projSel.options).some(o => o.value === project);
+  Array.from(projSel.options).forEach(o => {
+    o.selected = hasProject ? o.value === project : o.value === 'all';
+  });
+
+  const etypeSel = document.getElementById('etype-filter');
+  etypeSel.value = Array.from(etypeSel.options).some(o => o.value === merged.entityType) ? merged.entityType : 'all';
+
+  const rtypeSel = document.getElementById('rtype-filter');
+  rtypeSel.value = Array.from(rtypeSel.options).some(o => o.value === merged.relationType) ? merged.relationType : 'all';
+
+  const healthSel = document.getElementById('health-filter');
+  healthSel.value = Array.from(healthSel.options).some(o => o.value === merged.health) ? merged.health : 'all';
+
+  document.getElementById('search-inp').value = String(merged.keyword || '');
+}
+
+function getSkillSummary(){
+  const f = getCurrentUiFilters();
+  return `项目:${f.project} 实体:${f.entityType} 关系:${f.relationType} 健康:${f.health} 关键词:${f.keyword || '(none)'}`;
+}
+
+function applySkillRun(filtersPatch, promptText){
+  const normalized = normalizeSkillFilterPatch(filtersPatch || {});
+  const merged = { ...getCurrentUiFilters(), ...normalized };
+  if(typeof promptText === 'string'){
+    skillPromptText = promptText;
+  }
+  setUiFilters(merged);
+  applyFilters();
+  return {
+    applied: Object.keys(normalized).length > 0 || Boolean(promptText),
+    prompt: skillPromptText,
+    filters: getCurrentUiFilters(),
+    summary: getSkillSummary(),
+    counts: {
+      nodeCount: visNodes.length,
+      relationCount: visEdges.length
+    }
+  };
+}
+
+function runSkillPayload(payload){
+  const data = payload && typeof payload === 'object' ? payload : {};
+  if(data.prompt || data.text){
+    const prompt = String(data.prompt || data.text || '');
+    const inferred = inferSkillFiltersFromPrompt(prompt);
+    const patch = { ...inferred, ...normalizeSkillFilterPatch(data.filters || {}) };
+    return applySkillRun(patch, prompt);
+  }
+  const patchSource = data.filters && typeof data.filters === 'object' ? data.filters : data;
+  return applySkillRun(patchSource, '');
+}
+
+function handleSkillMessage(event){
+  const data = event && event.data;
+  if(!data || typeof data !== 'object') return;
+  const type = String(data.type || data.action || '');
+  if(!type.startsWith('opsgraph.')) return;
+
+  let result;
+  if(type === 'opsgraph.run'){
+    result = runSkillPayload(data.payload || data);
+  } else if(type === 'opsgraph.applyPrompt'){
+    result = runSkillPayload({ prompt: data.prompt || data.text || '', filters: data.filters || {} });
+  } else if(type === 'opsgraph.setFilters'){
+    result = runSkillPayload({ filters: data.filters || data.payload || {} });
+  } else if(type === 'opsgraph.getState'){
+    result = {
+      applied: true,
+      prompt: skillPromptText,
+      filters: getCurrentUiFilters(),
+      summary: getSkillSummary(),
+      counts: {
+        nodeCount: visNodes.length,
+        relationCount: visEdges.length
+      }
     };
+  } else {
+    return;
+  }
 
-    function escapeHtml(text) {
-      return String(text)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/\"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+  if(event && event.source && typeof event.source.postMessage === 'function'){
+    event.source.postMessage({
+      type: 'opsgraph.result',
+      requestId: data.requestId || null,
+      ...result
+    }, '*');
+  }
+}
+
+window.__OPS_DASHBOARD_SKILL__ = {
+  run(payload){
+    return runSkillPayload(payload || {});
+  },
+  applyPrompt(prompt, filters){
+    return runSkillPayload({ prompt: prompt || '', filters: filters || {} });
+  },
+  setFilters(filters){
+    return runSkillPayload({ filters: filters || {} });
+  },
+  getState(){
+    return {
+      prompt: skillPromptText,
+      filters: getCurrentUiFilters(),
+      summary: getSkillSummary(),
+      counts: {
+        nodeCount: visNodes.length,
+        relationCount: visEdges.length
+      }
+    };
+  }
+};
+
+window.addEventListener('load', () => {
+  populateFilters();
+  initSVG();
+
+  const fromState = normalizeSkillFilterPatch((SKILL_STATE && SKILL_STATE.filters) || {});
+  const fromPrompt = inferSkillFiltersFromPrompt(skillPromptText);
+  const bootstrapFilters = { ...DEFAULT_SKILL_FILTERS, ...fromPrompt, ...fromState };
+  const hasBootstrap =
+    bootstrapFilters.project !== 'all' ||
+    bootstrapFilters.entityType !== 'all' ||
+    bootstrapFilters.relationType !== 'all' ||
+    bootstrapFilters.health !== 'all' ||
+    Boolean(bootstrapFilters.keyword);
+
+  let firstProj = null;
+  if(hasBootstrap){
+    setUiFilters(bootstrapFilters);
+  } else {
+    firstProj = APP_CONFIG.projects.find(p => PROJS.includes(p.id)) || null;
+    if(firstProj){
+      setUiFilters({ project: firstProj.id });
+    } else {
+      setUiFilters({ project: 'all' });
     }
+  }
 
-    function renderHeader() {
-      document.getElementById("title").textContent = payload.title || "运维看板";
-      document.getElementById("sub").textContent = `自然语言请求: ${payload.prompt || "(empty)"}`;
+  aggMode = true;
+  document.body.classList.add('agg-mode-active');
+  document.getElementById('agg-toggle-btn').textContent = '⊞ 普通视图';
+  applyFilters();
+  setTimeout(fitView, 150);
 
-      const filters = payload.filters || {};
-      const chips = [
-        `项目: ${filters.project || "all"}`,
-        `实体: ${filters.entityType || "all"}`,
-        `关系: ${filters.relationType || "all"}`,
-        `状态: ${healthLabel[filters.health] || filters.health || "all"}`,
-        `关键词: ${filters.keyword || "(none)"}`
-      ];
+  if(skillPromptText){
+    setTimeout(() => showNotif(`已应用自然语言: ${skillPromptText.slice(0, 36)}`), 700);
+  } else {
+    setTimeout(() => showNotif(`已加载项目：${firstProj ? firstProj.name : '全部'}`), 700);
+  }
+});
 
-      document.getElementById("chips").innerHTML = chips.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("");
-    }
-
-    function renderCards() {
-      const summary = payload.summary || {};
-      const cards = [
-        ["节点数", summary.nodeCount || 0],
-        ["关系数", summary.linkCount || 0],
-        ["项目数", summary.projectCount || 0],
-        ["异常/告警", `${summary.errCount || 0}/${summary.warnCount || 0}`]
-      ];
-
-      document.getElementById("cards").innerHTML = cards
-        .map((item) => `<div class="card"><div class="label">${item[0]}</div><div class="value">${item[1]}</div></div>`)
-        .join("");
-    }
-
-    function renderBars() {
-      const map = (payload.summary && payload.summary.entityTypeCounts) || {};
-      const entries = Object.entries(map).sort((a, b) => b[1] - a[1]);
-      const maxVal = entries.length ? entries[0][1] : 1;
-
-      const html = entries
-        .map(([name, value]) => {
-          const width = Math.max(2, Math.round((value / maxVal) * 100));
-          return `
-            <div class="bar-row">
-              <div class="name">${escapeHtml(name)}</div>
-              <div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div>
-              <div class="bar-num">${value}</div>
-            </div>
-          `;
-        })
-        .join("");
-
-      document.getElementById("bars").innerHTML = html || `<div style="color:#7a889f;font-size:12px;">无可展示数据</div>`;
-    }
-
-    function renderNodeTable() {
-      const nodes = payload.nodes || [];
-      document.getElementById("nodesBody").innerHTML = nodes
-        .map((n) => {
-          const cls = healthClass[n.health] || "ok";
-          return `
-            <tr>
-              <td>${escapeHtml(n.id)}</td>
-              <td>${escapeHtml(n.label)}</td>
-              <td>${escapeHtml(n.type)}</td>
-              <td><span class="tag ${cls}">${escapeHtml(n.health)}</span></td>
-              <td>${escapeHtml(n.project || "-")}</td>
-            </tr>
-          `;
-        })
-        .join("");
-    }
-
-    function renderLinkTable() {
-      const links = payload.links || [];
-      document.getElementById("linksBody").innerHTML = links
-        .map((l) => `
-          <tr>
-            <td>${escapeHtml(l.source)}</td>
-            <td>${escapeHtml(l.target)}</td>
-            <td>${escapeHtml(l.type)}</td>
-          </tr>
-        `)
-        .join("");
-    }
-
-    function renderFooter() {
-      const s = payload.summary || {};
-      const meta = payload.meta || {};
-      document.getElementById("footer").textContent = `生成时间: ${new Date().toLocaleString()} | 数据来源: ${meta.source || "unknown"} | 原始节点: ${meta.rawNodeCount || 0} | 原始关系: ${meta.rawLinkCount || 0}`;
-    }
-
-    function renderAll() {
-      renderHeader();
-      renderCards();
-      renderBars();
-      renderNodeTable();
-      renderLinkTable();
-      renderFooter();
-    }
-
-    renderAll();
-  </script>
+window.addEventListener('message', handleSkillMessage);
+</script>
 </body>
 </html>
