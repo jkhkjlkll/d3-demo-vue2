@@ -20,6 +20,7 @@ The generated HTML is self-contained and host-framework agnostic:
 
 Use one of these modes:
 - Backend mode: pass `--api-url` to fetch live data.
+- If the backend filters by application, also pass `--app-id` so the request becomes `?appId=...`.
 - Mock mode: pass `--mock-file` or use default mock data.
 
 Mock backend script:
@@ -38,12 +39,15 @@ Run:
 ```bash
 python3 scripts/build_dashboard.py \
   --api-url http://127.0.0.1:8787/api/ops-graph \
+  --app-id app-001 \
   --prompt "看 P002 告警 API，关键词: 风控" \
   --output ./out/dashboard.html
 ```
 
 What the script does:
 - Load backend payload.
+- Normalize either `data.nodes/links` or `data.datas[].nodes/relations`.
+- For your internal graph shape, normalized `project` prefers `nodes[].app_user`; `--app-id` is used for request filtering and fallback only.
 - Infer filters (`project`, `entityType`, `relationType`, `health`, `keyword`) from prompt.
 - Filter `nodes` and `links`.
 - Render `assets/dashboard.template.html` with filtered data.
@@ -69,8 +73,9 @@ Open:
 
 Supported intent extraction in `scripts/build_dashboard.py`:
 - Project: `P001`, `P002`, `全部项目`, `跨项目`
+- Application/project identifiers: `appId=xxx`, `app_id=xxx`, `app_user=xxx`, `应用 xxx`, `项目 xxx`
 - Entity type: `API`, `服务`, `数据库`, `中间件`, `计算`, `告警`, `用户`, `域名`
-- Relation type: `访问`, `调用`, `负载`, `承载`, `监控`
+- Relation type: `访问`, `调用`, `包含`, `同一`, `负载`, `承载`, `监控`
 - Health: `正常`, `告警`, `异常`
 - Keyword: `关键词: xxx` or quoted string
 

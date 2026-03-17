@@ -25,6 +25,23 @@ Use this schema when normalizing backend payload for the dashboard renderer.
 }
 ```
 
+### Shape C
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "datas": [
+      {
+        "nodes": [],
+        "relations": [],
+        "result": []
+      }
+    ]
+  }
+}
+```
+
 ## Node schema
 
 Required fields:
@@ -54,6 +71,54 @@ Required fields:
 2. Drop malformed nodes or links missing required IDs.
 
 3. Keep only links whose `source` and `target` both exist in node IDs after filtering.
+
+## Internal graph adapter notes
+
+This skill can also normalize a backend shape like:
+
+```json
+{
+  "status": "ok|error",
+  "data": {
+    "datas": [
+      {
+        "nodes": [],
+        "relations": [],
+        "result": []
+      }
+    ]
+  }
+}
+```
+
+Field mapping used by the adapter:
+- Node ID: `nodes[].id`
+- Node label: `nodes[].name`
+- Node type: `nodes[].resource_type`
+- Node health: `nodes[].lifecycle_state`
+- Project/app dimension: normalized `project` prefers `nodes[].app_user`; request-side `appId` is only used as query param and fallback
+- Relation source: `relations[].startNodeId`
+- Relation target: `relations[].endNodeId`
+- Relation type: `relations[].relation_type`
+
+Lifecycle health mapping:
+- `Active` -> `正常`
+- `Recycle` -> `异常`
+- unknown values default to `正常`
+
+Known relation aliases:
+- `contains` -> `包含`
+- `calls` -> `调用`
+- `same_as` -> `同一资源`
+
+`result[]` is ignored unless a future adapter explicitly consumes it.
+
+Natural-language project parsing also recognizes these explicit forms:
+- `appId=xxx`
+- `app_id=xxx`
+- `app_user=xxx`
+- `应用 xxx`
+- `项目 xxx`
 
 ## Filter fields
 

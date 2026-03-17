@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 
@@ -25,12 +26,19 @@ HEALTH_ALIAS_TO_KEY = {
     "ok": "ok",
     "healthy": "ok",
     "normal": "ok",
+    "active": "ok",
+    "running": "ok",
     "告警": "warn",
     "warn": "warn",
     "warning": "warn",
+    "inactive": "warn",
+    "stopped": "warn",
     "异常": "err",
     "err": "err",
     "error": "err",
+    "recycle": "err",
+    "deleted": "err",
+    "terminated": "err",
 }
 
 HEALTH_KEY_TO_DISPLAY = {
@@ -51,12 +59,32 @@ ENTITY_ALIAS_TO_KEY = {
     "db": "db",
     "database": "db",
     "数据库": "db",
+    "mysql": "db",
+    "postgres": "db",
+    "postgresql": "db",
+    "oracle": "db",
+    "mongodb": "db",
+    "rds": "db",
     "middleware": "middleware",
     "中间件": "middleware",
+    "redis": "middleware",
+    "kafka": "middleware",
+    "mq": "middleware",
+    "rocketmq": "middleware",
+    "rabbitmq": "middleware",
+    "elasticsearch": "middleware",
     "compute": "compute",
     "计算": "compute",
     "计算资源": "compute",
     "node": "compute",
+    "ec2": "compute",
+    "ecs": "compute",
+    "host": "compute",
+    "storage": "storage",
+    "存储": "storage",
+    "efs": "storage",
+    "esfs": "storage",
+    "nfs": "storage",
     "alarm": "alarm",
     "告警": "alarm",
     "user": "user",
@@ -72,6 +100,7 @@ ENTITY_KEY_TO_DISPLAY = {
     "db": "数据库",
     "middleware": "中间件",
     "compute": "计算资源",
+    "storage": "存储",
     "alarm": "告警",
     "user": "用户",
     "domain": "域名上下文根",
@@ -82,6 +111,7 @@ RELATION_ALIAS_TO_KEY = {
     "访问": "access",
     "call": "call",
     "调用": "call",
+    "calls": "calls",
     "lb": "lb",
     "loadbalance": "lb",
     "负载": "lb",
@@ -91,14 +121,23 @@ RELATION_ALIAS_TO_KEY = {
     "部署": "host",
     "monitor": "monitor",
     "监控": "monitor",
+    "contains": "contains",
+    "包含": "contains",
+    "same_as": "same_as",
+    "sameas": "same_as",
+    "同一": "same_as",
+    "等同": "same_as",
 }
 
 RELATION_KEY_TO_DISPLAY = {
     "access": "访问",
     "call": "调用",
+    "calls": "调用",
     "lb": "负载均衡",
     "host": "承载",
     "monitor": "监控",
+    "contains": "包含",
+    "same_as": "同一资源",
 }
 
 ENTITY_COLOR_MAP = {
@@ -109,6 +148,7 @@ ENTITY_COLOR_MAP = {
     "数据库": "#ffcc00",
     "中间件": "#9d6fff",
     "计算资源": "#7fa8cc",
+    "存储": "#80d0ff",
     "告警": "#ff4040",
 }
 
@@ -118,6 +158,8 @@ RELATION_COLOR_MAP = {
     "负载均衡": "#9d6fff",
     "承载": "#7fa8cc",
     "监控": "#ff4040",
+    "包含": "#4db8ff",
+    "同一资源": "#9d6fff",
 }
 
 FALLBACK_COLORS = [
@@ -164,6 +206,7 @@ class BuildContext:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build dashboard from backend data + natural language")
     parser.add_argument("--api-url", default="", help="Backend endpoint returning graph JSON")
+    parser.add_argument("--app-id", default="", help="Optional appId query parameter passed to backend API")
     parser.add_argument("--prompt", default="", help="Natural-language request used to infer filters")
     parser.add_argument("--output", default="./out/dashboard.html", help="Output HTML file path")
     parser.add_argument("--template", default=str(DEFAULT_TEMPLATE), help="HTML template file path")
@@ -183,8 +226,18 @@ def read_json_file(path: Path) -> Dict:
         return json.load(fp)
 
 
-def fetch_backend_json(api_url: str, timeout: float) -> Dict:
-    req = Request(api_url, headers={"Accept": "application/json"})
+def build_request_url(api_url: str, app_id: str) -> str:
+    if not app_id:
+        return api_url
+
+    parts = urlsplit(api_url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["appId"] = app_id
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def fetch_backend_json(api_url: str, timeout: float, app_id: str = "") -> Dict:
+    req = Request(build_request_url(api_url, app_id), headers={"Accept": "application/json"})
     with urlopen(req, timeout=timeout) as resp:
         body = resp.read().decode("utf-8")
     return json.loads(body)
@@ -227,26 +280,38 @@ def key_to_relation_label(value: str) -> str:
     return RELATION_KEY_TO_DISPLAY.get(key, key or "未知")
 
 
-def normalize_node(raw: Dict) -> Dict | None:
+def normalize_node(raw: Dict, default_project: str = "UNKNOWN") -> Dict | None:
     node_id = str(raw.get("id") or raw.get("entity_id") or "").strip()
     if not node_id:
         return None
 
-    node_type = normalize_entity_key(str(raw.get("type") or raw.get("entity_type") or "unknown"))
-    project = str(raw.get("project") or raw.get("project_id") or "UNKNOWN").strip() or "UNKNOWN"
+    node_type = normalize_entity_key(
+        str(raw.get("type") or raw.get("entity_type") or raw.get("resource_type") or "unknown")
+    )
+    project = str(
+        raw.get("project")
+        or raw.get("project_id")
+        or raw.get("app_user")
+        or raw.get("app_id")
+        or raw.get("appId")
+        or default_project
+        or "UNKNOWN"
+    ).strip() or "UNKNOWN"
+    display_name = str(raw.get("label") or raw.get("name") or raw.get("resource_id") or node_id)
+    health_value = raw.get("health") or raw.get("health_status") or raw.get("lifecycle_state") or "正常"
 
     return {
         "id": node_id,
-        "label": str(raw.get("label") or raw.get("entity_name") or node_id),
+        "label": display_name,
         "type": node_type,
-        "health": normalize_health_display(str(raw.get("health") or raw.get("health_status") or "正常")),
+        "health": normalize_health_display(str(health_value)),
         "project": project,
     }
 
 
 def normalize_link(raw: Dict) -> Dict | None:
-    source = str(raw.get("source") or raw.get("source_entity_id") or "").strip()
-    target = str(raw.get("target") or raw.get("target_entity_id") or "").strip()
+    source = str(raw.get("source") or raw.get("source_entity_id") or raw.get("startNodeId") or "").strip()
+    target = str(raw.get("target") or raw.get("target_entity_id") or raw.get("endNodeId") or "").strip()
     if not source or not target:
         return None
     return {
@@ -257,22 +322,36 @@ def normalize_link(raw: Dict) -> Dict | None:
     }
 
 
-def normalize_payload(payload: Dict) -> Dict[str, List[Dict]]:
+def iter_data_entries(payload: Dict) -> List[Dict]:
     data = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else payload
-    nodes_raw = data.get("nodes", []) if isinstance(data, dict) else []
-    if not isinstance(nodes_raw, list):
-        nodes_raw = []
+    if not isinstance(data, dict):
+        return []
 
-    links_raw = []
-    if isinstance(data, dict):
-        raw_links = data.get("links")
-        raw_relations = data.get("relations")
+    datas = data.get("datas")
+    if isinstance(datas, list):
+        return [item for item in datas if isinstance(item, dict)]
+    if isinstance(datas, dict):
+        return [datas]
+    return [data]
+
+
+def normalize_payload(payload: Dict, default_project: str = "UNKNOWN") -> Dict[str, List[Dict]]:
+    nodes_raw: List[Dict] = []
+    links_raw: List[Dict] = []
+
+    for entry in iter_data_entries(payload):
+        raw_nodes = entry.get("nodes", [])
+        if isinstance(raw_nodes, list):
+            nodes_raw.extend(item for item in raw_nodes if isinstance(item, dict))
+
+        raw_links = entry.get("links")
+        raw_relations = entry.get("relations")
         if isinstance(raw_links, list):
-            links_raw = raw_links
+            links_raw.extend(item for item in raw_links if isinstance(item, dict))
         elif isinstance(raw_relations, list):
-            links_raw = raw_relations
+            links_raw.extend(item for item in raw_relations if isinstance(item, dict))
 
-    nodes = [n for n in (normalize_node(item or {}) for item in nodes_raw) if n]
+    nodes = [n for n in (normalize_node(item or {}, default_project=default_project) for item in nodes_raw) if n]
     node_ids = {n["id"] for n in nodes}
     links = [
         l
@@ -292,7 +371,56 @@ def infer_keyword(prompt: str) -> str:
     return ""
 
 
-def infer_filters_from_prompt(prompt: str, projects: Iterable[str]) -> Dict[str, str]:
+def resolve_project_token(token: str, projects: Iterable[str]) -> str:
+    raw = str(token or "").strip()
+    if not raw:
+        return ""
+
+    project_list = [str(project).strip() for project in projects if str(project).strip()]
+    upper = raw.upper()
+    lower = raw.lower()
+
+    for project in project_list:
+        if project == raw or project.upper() == upper or project.lower() == lower:
+            return project
+
+    for project in sorted(project_list, key=len, reverse=True):
+        project_upper = project.upper()
+        if upper in project_upper or project_upper in upper:
+            return project
+
+    return raw if not project_list else ""
+
+
+def extract_explicit_project_token(prompt: str, projects: Iterable[str]) -> str:
+    text = str(prompt or "").strip()
+    if not text:
+        return ""
+
+    patterns = [
+        r"\bapp[\s_-]*id\b\s*[:=：]?\s*([A-Za-z0-9._\-/]+)",
+        r"\bapp[\s_-]*user\b\s*[:=：]?\s*([A-Za-z0-9._\-/]+)",
+        r"(?:应用|项目)\s*(?:id|名称|编码)?\s*[:=：]?\s*([A-Za-z0-9._\-/]+)",
+        r"([A-Za-z0-9._\-/]+)\s*(?:应用|项目)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.I)
+        if match:
+            return resolve_project_token(match.group(1), projects)
+
+    return ""
+
+
+def infer_app_id_from_prompt(prompt: str) -> str:
+    return extract_explicit_project_token(prompt, [])
+
+
+def infer_filters_from_prompt(
+    prompt: str,
+    projects: Iterable[str],
+    relation_types: Iterable[str] | None = None,
+) -> Dict[str, str]:
     filters = {
         "project": "all",
         "entityType": "all",
@@ -306,15 +434,21 @@ def infer_filters_from_prompt(prompt: str, projects: Iterable[str]) -> Dict[str,
 
     low = text.lower()
     compact = re.sub(r"\s+", "", low)
+    available_relation_types = {str(item).strip() for item in (relation_types or []) if str(item).strip()}
 
     if re.search(r"全部项目|所有项目|跨项目|allprojects", compact):
         filters["project"] = "all"
     else:
+        explicit_project = extract_explicit_project_token(text, projects)
+        if explicit_project:
+            filters["project"] = explicit_project
+
         upper_text = text.upper()
-        for proj in sorted(set(projects)):
-            if proj and proj.upper() in upper_text:
-                filters["project"] = proj
-                break
+        if filters["project"] == "all":
+            for proj in sorted(set(projects), key=len, reverse=True):
+                if proj and proj.upper() in upper_text:
+                    filters["project"] = proj
+                    break
         if filters["project"] == "all":
             if "电商" in text or "p1" in compact:
                 filters["project"] = "P001"
@@ -327,6 +461,7 @@ def infer_filters_from_prompt(prompt: str, projects: Iterable[str]) -> Dict[str,
         ("db", ["数据库", "db", "mysql", "postgres", "oracle"]),
         ("middleware", ["中间件", "redis", "kafka", "mq", "es"]),
         ("compute", ["计算", "节点", "k8s", "vm"]),
+        ("storage", ["存储", "文件系统", "efs", "esfs", "nfs"]),
         ("alarm", ["告警", "alarm"]),
         ("user", ["用户"]),
         ("domain", ["域名"]),
@@ -337,6 +472,9 @@ def infer_filters_from_prompt(prompt: str, projects: Iterable[str]) -> Dict[str,
             break
 
     relation_hints = [
+        ("contains", ["包含", "归属", "contains"]),
+        ("calls", ["调用", "call", "calls"]),
+        ("same_as", ["同一", "等同", "same_as", "sameas"]),
         ("access", ["访问"]),
         ("call", ["调用"]),
         ("lb", ["负载", "lb"]),
@@ -345,6 +483,8 @@ def infer_filters_from_prompt(prompt: str, projects: Iterable[str]) -> Dict[str,
     ]
     for key, hints in relation_hints:
         if any(h in low for h in hints):
+            if key == "calls" and available_relation_types and key not in available_relation_types and "call" in available_relation_types:
+                key = "call"
             filters["relationType"] = key
             break
 
@@ -520,9 +660,10 @@ def build_app_config(graph_data: Dict[str, List[Dict]]) -> Dict:
         "数据库",
         "中间件",
         "计算资源",
+        "存储",
         "告警",
     ]
-    known_relation_order = ["访问", "调用", "负载均衡", "承载", "监控"]
+    known_relation_order = ["访问", "调用", "包含", "同一资源", "负载均衡", "承载", "监控"]
 
     entity_types = build_type_config(entity_labels, known_entity_order, ENTITY_COLOR_MAP)
     relation_types = build_type_config(relation_labels, known_relation_order, RELATION_COLOR_MAP)
@@ -577,10 +718,11 @@ def render_dashboard(
 def load_source_data(args: argparse.Namespace) -> Tuple[Dict[str, List[Dict]], BuildContext]:
     if args.api_url:
         try:
-            payload = fetch_backend_json(args.api_url, timeout=args.timeout)
-            normalized = normalize_payload(payload)
+            payload = fetch_backend_json(args.api_url, timeout=args.timeout, app_id=args.app_id)
+            normalized = normalize_payload(payload, default_project=args.app_id or "UNKNOWN")
+            source_url = build_request_url(args.api_url, args.app_id)
             return normalized, BuildContext(
-                source=f"backend:{args.api_url}",
+                source=f"backend:{source_url}",
                 raw_node_count=len(normalized["nodes"]),
                 raw_link_count=len(normalized["links"]),
             )
@@ -591,7 +733,7 @@ def load_source_data(args: argparse.Namespace) -> Tuple[Dict[str, List[Dict]], B
 
     mock_path = Path(args.mock_file).expanduser().resolve()
     payload = read_json_file(mock_path)
-    normalized = normalize_payload(payload)
+    normalized = normalize_payload(payload, default_project=args.app_id or "UNKNOWN")
     return normalized, BuildContext(
         source=f"mock:{mock_path}",
         raw_node_count=len(normalized["nodes"]),
@@ -601,6 +743,8 @@ def load_source_data(args: argparse.Namespace) -> Tuple[Dict[str, List[Dict]], B
 
 def main() -> int:
     args = parse_args()
+    if not args.app_id:
+        args.app_id = infer_app_id_from_prompt(args.prompt)
 
     try:
         normalized, ctx = load_source_data(args)
@@ -609,7 +753,11 @@ def main() -> int:
         return 2
 
     projects = sorted({n.get("project", "UNKNOWN") for n in normalized["nodes"] if n.get("project")})
-    filters = infer_filters_from_prompt(args.prompt, projects)
+    filters = infer_filters_from_prompt(
+        args.prompt,
+        projects,
+        relation_types=[link.get("type", "") for link in normalized["links"]],
+    )
     filtered_nodes, filtered_links = apply_filters(normalized["nodes"], normalized["links"], filters)
     summary = build_summary(filtered_nodes, filtered_links)
 
@@ -625,6 +773,7 @@ def main() -> int:
             "source": ctx.source,
             "rawNodeCount": ctx.raw_node_count,
             "rawLinkCount": ctx.raw_link_count,
+            "appId": args.app_id,
         },
     }
 
@@ -649,6 +798,7 @@ def main() -> int:
             "source": ctx.source,
             "rawNodeCount": ctx.raw_node_count,
             "rawLinkCount": ctx.raw_link_count,
+            "appId": args.app_id,
         },
     }
 

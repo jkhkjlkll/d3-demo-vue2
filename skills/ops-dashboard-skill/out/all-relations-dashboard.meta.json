@@ -1,0 +1,774 @@
+{
+  "title": "Ops Dashboard Skill Demo",
+  "prompt": "看全部关系看板",
+  "filters": {
+    "project": "all",
+    "entityType": "all",
+    "relationType": "all",
+    "health": "all",
+    "keyword": ""
+  },
+  "uiFilters": {
+    "project": "all",
+    "entityType": "all",
+    "relationType": "all",
+    "health": "all",
+    "keyword": ""
+  },
+  "summary": {
+    "nodeCount": 14,
+    "linkCount": 13,
+    "projectCount": 2,
+    "okCount": 7,
+    "warnCount": 6,
+    "errCount": 1,
+    "entityTypeCounts": {
+      "用户": 2,
+      "域名上下文根": 2,
+      "API接口": 2,
+      "应用微服务": 2,
+      "中间件": 2,
+      "数据库": 2,
+      "告警": 2
+    }
+  },
+  "filtered": {
+    "nodes": [
+      {
+        "id": "user-p001",
+        "label": "用户入口(P001)",
+        "type": "user",
+        "health": "正常",
+        "project": "P001"
+      },
+      {
+        "id": "domain-p001",
+        "label": "域名(P001)",
+        "type": "domain",
+        "health": "正常",
+        "project": "P001"
+      },
+      {
+        "id": "api-order-p001",
+        "label": "订单API(P001)",
+        "type": "api",
+        "health": "告警",
+        "project": "P001"
+      },
+      {
+        "id": "svc-order-p001",
+        "label": "订单服务(P001)",
+        "type": "service",
+        "health": "告警",
+        "project": "P001"
+      },
+      {
+        "id": "redis-p001",
+        "label": "Redis(P001)",
+        "type": "middleware",
+        "health": "正常",
+        "project": "P001"
+      },
+      {
+        "id": "db-order-p001",
+        "label": "订单库(P001)",
+        "type": "db",
+        "health": "正常",
+        "project": "P001"
+      },
+      {
+        "id": "alarm-p001",
+        "label": "交易告警(P001)",
+        "type": "alarm",
+        "health": "异常",
+        "project": "P001"
+      },
+      {
+        "id": "user-p002",
+        "label": "用户入口(P002)",
+        "type": "user",
+        "health": "正常",
+        "project": "P002"
+      },
+      {
+        "id": "domain-p002",
+        "label": "域名(P002)",
+        "type": "domain",
+        "health": "正常",
+        "project": "P002"
+      },
+      {
+        "id": "api-risk-p002",
+        "label": "风控API(P002)",
+        "type": "api",
+        "health": "告警",
+        "project": "P002"
+      },
+      {
+        "id": "svc-risk-p002",
+        "label": "风控服务(P002)",
+        "type": "service",
+        "health": "告警",
+        "project": "P002"
+      },
+      {
+        "id": "kafka-p002",
+        "label": "Kafka(P002)",
+        "type": "middleware",
+        "health": "正常",
+        "project": "P002"
+      },
+      {
+        "id": "db-risk-p002",
+        "label": "风控库(P002)",
+        "type": "db",
+        "health": "告警",
+        "project": "P002"
+      },
+      {
+        "id": "alarm-p002",
+        "label": "风控告警(P002)",
+        "type": "alarm",
+        "health": "告警",
+        "project": "P002"
+      }
+    ],
+    "links": [
+      {
+        "source": "user-p001",
+        "target": "domain-p001",
+        "type": "access",
+        "health": "正常"
+      },
+      {
+        "source": "domain-p001",
+        "target": "api-order-p001",
+        "type": "call",
+        "health": "正常"
+      },
+      {
+        "source": "api-order-p001",
+        "target": "svc-order-p001",
+        "type": "call",
+        "health": "正常"
+      },
+      {
+        "source": "svc-order-p001",
+        "target": "redis-p001",
+        "type": "lb",
+        "health": "正常"
+      },
+      {
+        "source": "svc-order-p001",
+        "target": "db-order-p001",
+        "type": "host",
+        "health": "正常"
+      },
+      {
+        "source": "db-order-p001",
+        "target": "alarm-p001",
+        "type": "monitor",
+        "health": "正常"
+      },
+      {
+        "source": "user-p002",
+        "target": "domain-p002",
+        "type": "access",
+        "health": "正常"
+      },
+      {
+        "source": "domain-p002",
+        "target": "api-risk-p002",
+        "type": "call",
+        "health": "正常"
+      },
+      {
+        "source": "api-risk-p002",
+        "target": "svc-risk-p002",
+        "type": "call",
+        "health": "正常"
+      },
+      {
+        "source": "svc-risk-p002",
+        "target": "kafka-p002",
+        "type": "lb",
+        "health": "正常"
+      },
+      {
+        "source": "svc-risk-p002",
+        "target": "db-risk-p002",
+        "type": "host",
+        "health": "正常"
+      },
+      {
+        "source": "db-risk-p002",
+        "target": "alarm-p002",
+        "type": "monitor",
+        "health": "正常"
+      },
+      {
+        "source": "svc-order-p001",
+        "target": "svc-risk-p002",
+        "type": "call",
+        "health": "正常"
+      }
+    ]
+  },
+  "dataset": {
+    "nodes": [
+      {
+        "id": "user-p001",
+        "label": "用户入口(P001)",
+        "type": "user",
+        "health": "正常",
+        "project": "P001"
+      },
+      {
+        "id": "domain-p001",
+        "label": "域名(P001)",
+        "type": "domain",
+        "health": "正常",
+        "project": "P001"
+      },
+      {
+        "id": "api-order-p001",
+        "label": "订单API(P001)",
+        "type": "api",
+        "health": "告警",
+        "project": "P001"
+      },
+      {
+        "id": "svc-order-p001",
+        "label": "订单服务(P001)",
+        "type": "service",
+        "health": "告警",
+        "project": "P001"
+      },
+      {
+        "id": "redis-p001",
+        "label": "Redis(P001)",
+        "type": "middleware",
+        "health": "正常",
+        "project": "P001"
+      },
+      {
+        "id": "db-order-p001",
+        "label": "订单库(P001)",
+        "type": "db",
+        "health": "正常",
+        "project": "P001"
+      },
+      {
+        "id": "alarm-p001",
+        "label": "交易告警(P001)",
+        "type": "alarm",
+        "health": "异常",
+        "project": "P001"
+      },
+      {
+        "id": "user-p002",
+        "label": "用户入口(P002)",
+        "type": "user",
+        "health": "正常",
+        "project": "P002"
+      },
+      {
+        "id": "domain-p002",
+        "label": "域名(P002)",
+        "type": "domain",
+        "health": "正常",
+        "project": "P002"
+      },
+      {
+        "id": "api-risk-p002",
+        "label": "风控API(P002)",
+        "type": "api",
+        "health": "告警",
+        "project": "P002"
+      },
+      {
+        "id": "svc-risk-p002",
+        "label": "风控服务(P002)",
+        "type": "service",
+        "health": "告警",
+        "project": "P002"
+      },
+      {
+        "id": "kafka-p002",
+        "label": "Kafka(P002)",
+        "type": "middleware",
+        "health": "正常",
+        "project": "P002"
+      },
+      {
+        "id": "db-risk-p002",
+        "label": "风控库(P002)",
+        "type": "db",
+        "health": "告警",
+        "project": "P002"
+      },
+      {
+        "id": "alarm-p002",
+        "label": "风控告警(P002)",
+        "type": "alarm",
+        "health": "告警",
+        "project": "P002"
+      }
+    ],
+    "links": [
+      {
+        "source": "user-p001",
+        "target": "domain-p001",
+        "type": "access",
+        "health": "正常"
+      },
+      {
+        "source": "domain-p001",
+        "target": "api-order-p001",
+        "type": "call",
+        "health": "正常"
+      },
+      {
+        "source": "api-order-p001",
+        "target": "svc-order-p001",
+        "type": "call",
+        "health": "正常"
+      },
+      {
+        "source": "svc-order-p001",
+        "target": "redis-p001",
+        "type": "lb",
+        "health": "正常"
+      },
+      {
+        "source": "svc-order-p001",
+        "target": "db-order-p001",
+        "type": "host",
+        "health": "正常"
+      },
+      {
+        "source": "db-order-p001",
+        "target": "alarm-p001",
+        "type": "monitor",
+        "health": "正常"
+      },
+      {
+        "source": "user-p002",
+        "target": "domain-p002",
+        "type": "access",
+        "health": "正常"
+      },
+      {
+        "source": "domain-p002",
+        "target": "api-risk-p002",
+        "type": "call",
+        "health": "正常"
+      },
+      {
+        "source": "api-risk-p002",
+        "target": "svc-risk-p002",
+        "type": "call",
+        "health": "正常"
+      },
+      {
+        "source": "svc-risk-p002",
+        "target": "kafka-p002",
+        "type": "lb",
+        "health": "正常"
+      },
+      {
+        "source": "svc-risk-p002",
+        "target": "db-risk-p002",
+        "type": "host",
+        "health": "正常"
+      },
+      {
+        "source": "db-risk-p002",
+        "target": "alarm-p002",
+        "type": "monitor",
+        "health": "正常"
+      },
+      {
+        "source": "svc-order-p001",
+        "target": "svc-risk-p002",
+        "type": "call",
+        "health": "正常"
+      }
+    ]
+  },
+  "graphData": {
+    "nodes": [
+      {
+        "entity_id": "user-p001",
+        "entity_name": "用户入口(P001)",
+        "entity_type": "用户",
+        "project_id": "P001",
+        "health_status": "正常",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "entity_id": "domain-p001",
+        "entity_name": "域名(P001)",
+        "entity_type": "域名上下文根",
+        "project_id": "P001",
+        "health_status": "正常",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "entity_id": "api-order-p001",
+        "entity_name": "订单API(P001)",
+        "entity_type": "API接口",
+        "project_id": "P001",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "entity_id": "svc-order-p001",
+        "entity_name": "订单服务(P001)",
+        "entity_type": "应用微服务",
+        "project_id": "P001",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "entity_id": "redis-p001",
+        "entity_name": "Redis(P001)",
+        "entity_type": "中间件",
+        "project_id": "P001",
+        "health_status": "正常",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "entity_id": "db-order-p001",
+        "entity_name": "订单库(P001)",
+        "entity_type": "数据库",
+        "project_id": "P001",
+        "health_status": "正常",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "entity_id": "alarm-p001",
+        "entity_name": "交易告警(P001)",
+        "entity_type": "告警",
+        "project_id": "P001",
+        "health_status": "异常",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "entity_id": "user-p002",
+        "entity_name": "用户入口(P002)",
+        "entity_type": "用户",
+        "project_id": "P002",
+        "health_status": "正常",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "entity_id": "domain-p002",
+        "entity_name": "域名(P002)",
+        "entity_type": "域名上下文根",
+        "project_id": "P002",
+        "health_status": "正常",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "entity_id": "api-risk-p002",
+        "entity_name": "风控API(P002)",
+        "entity_type": "API接口",
+        "project_id": "P002",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "entity_id": "svc-risk-p002",
+        "entity_name": "风控服务(P002)",
+        "entity_type": "应用微服务",
+        "project_id": "P002",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "entity_id": "kafka-p002",
+        "entity_name": "Kafka(P002)",
+        "entity_type": "中间件",
+        "project_id": "P002",
+        "health_status": "正常",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "entity_id": "db-risk-p002",
+        "entity_name": "风控库(P002)",
+        "entity_type": "数据库",
+        "project_id": "P002",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "entity_id": "alarm-p002",
+        "entity_name": "风控告警(P002)",
+        "entity_type": "告警",
+        "project_id": "P002",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      }
+    ],
+    "relations": [
+      {
+        "relation_id": "R-00001",
+        "relation_type": "访问",
+        "source_entity_id": "user-p001",
+        "target_entity_id": "domain-p001",
+        "health_status": "正常",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "relation_id": "R-00002",
+        "relation_type": "调用",
+        "source_entity_id": "domain-p001",
+        "target_entity_id": "api-order-p001",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "relation_id": "R-00003",
+        "relation_type": "调用",
+        "source_entity_id": "api-order-p001",
+        "target_entity_id": "svc-order-p001",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "relation_id": "R-00004",
+        "relation_type": "负载均衡",
+        "source_entity_id": "svc-order-p001",
+        "target_entity_id": "redis-p001",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "relation_id": "R-00005",
+        "relation_type": "承载",
+        "source_entity_id": "svc-order-p001",
+        "target_entity_id": "db-order-p001",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "relation_id": "R-00006",
+        "relation_type": "监控",
+        "source_entity_id": "db-order-p001",
+        "target_entity_id": "alarm-p001",
+        "health_status": "异常",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "relation_id": "R-00007",
+        "relation_type": "访问",
+        "source_entity_id": "user-p002",
+        "target_entity_id": "domain-p002",
+        "health_status": "正常",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "relation_id": "R-00008",
+        "relation_type": "调用",
+        "source_entity_id": "domain-p002",
+        "target_entity_id": "api-risk-p002",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "relation_id": "R-00009",
+        "relation_type": "调用",
+        "source_entity_id": "api-risk-p002",
+        "target_entity_id": "svc-risk-p002",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "relation_id": "R-00010",
+        "relation_type": "负载均衡",
+        "source_entity_id": "svc-risk-p002",
+        "target_entity_id": "kafka-p002",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "relation_id": "R-00011",
+        "relation_type": "承载",
+        "source_entity_id": "svc-risk-p002",
+        "target_entity_id": "db-risk-p002",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "relation_id": "R-00012",
+        "relation_type": "监控",
+        "source_entity_id": "db-risk-p002",
+        "target_entity_id": "alarm-p002",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      },
+      {
+        "relation_id": "R-00013",
+        "relation_type": "调用",
+        "source_entity_id": "svc-order-p001",
+        "target_entity_id": "svc-risk-p002",
+        "health_status": "告警",
+        "created_at": "2026-03-17 11:28:15",
+        "updated_at": "2026-03-17 11:28:15"
+      }
+    ]
+  },
+  "appConfig": {
+    "projects": [
+      {
+        "id": "P001",
+        "name": "P001",
+        "color": "#1a9fff",
+        "bgColor": "rgba(26,159,255,0.04)",
+        "borderColor": "rgba(26,159,255,0.28)"
+      },
+      {
+        "id": "P002",
+        "name": "P002",
+        "color": "#9d6fff",
+        "bgColor": "rgba(157,111,255,0.04)",
+        "borderColor": "rgba(157,111,255,0.28)"
+      }
+    ],
+    "entityTypes": [
+      {
+        "type": "用户",
+        "color": "#4db8ff"
+      },
+      {
+        "type": "域名上下文根",
+        "color": "#00e5ff"
+      },
+      {
+        "type": "API接口",
+        "color": "#ff8c33"
+      },
+      {
+        "type": "应用微服务",
+        "color": "#00d68f"
+      },
+      {
+        "type": "数据库",
+        "color": "#ffcc00"
+      },
+      {
+        "type": "中间件",
+        "color": "#9d6fff"
+      },
+      {
+        "type": "告警",
+        "color": "#ff4040"
+      }
+    ],
+    "relationTypes": [
+      {
+        "type": "访问",
+        "color": "#4db8ff"
+      },
+      {
+        "type": "调用",
+        "color": "#00d68f"
+      },
+      {
+        "type": "负载均衡",
+        "color": "#9d6fff"
+      },
+      {
+        "type": "承载",
+        "color": "#7fa8cc"
+      },
+      {
+        "type": "监控",
+        "color": "#ff4040"
+      }
+    ],
+    "layout": {
+      "nodeWidth": 118,
+      "nodeHeight": 42,
+      "nodeVGap": 22,
+      "bandMarginV": 28,
+      "bandGap": 56,
+      "canvasTop": 54,
+      "colSpan": 168,
+      "marginLeft": 90,
+      "collapseThreshold": 20,
+      "skillCollapseThreshold": 10
+    },
+    "healthStates": [
+      "正常",
+      "正常",
+      "正常",
+      "告警",
+      "异常"
+    ]
+  },
+  "skillState": {
+    "prompt": "看全部关系看板",
+    "filters": {
+      "project": "all",
+      "entityType": "all",
+      "relationType": "all",
+      "health": "all",
+      "keyword": ""
+    },
+    "summary": {
+      "nodeCount": 14,
+      "linkCount": 13,
+      "projectCount": 2,
+      "okCount": 7,
+      "warnCount": 6,
+      "errCount": 1,
+      "entityTypeCounts": {
+        "用户": 2,
+        "域名上下文根": 2,
+        "API接口": 2,
+        "应用微服务": 2,
+        "中间件": 2,
+        "数据库": 2,
+        "告警": 2
+      }
+    },
+    "meta": {
+      "source": "mock:/Users/xiao/code/d3-demo-vue2/skills/ops-dashboard-skill/assets/mock_data.json",
+      "rawNodeCount": 14,
+      "rawLinkCount": 13
+    }
+  },
+  "meta": {
+    "source": "mock:/Users/xiao/code/d3-demo-vue2/skills/ops-dashboard-skill/assets/mock_data.json",
+    "rawNodeCount": 14,
+    "rawLinkCount": 13
+  }
+}
