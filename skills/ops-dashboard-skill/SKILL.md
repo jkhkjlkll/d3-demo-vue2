@@ -1,33 +1,33 @@
 ---
 name: ops-dashboard-skill
-description: Deterministically run the bundled ops dashboard scripts to fetch backend graph data, infer natural-language filters, and generate or update the bundled HTML template. Use when an agent must produce the dashboard via local scripts; do not hand-write HTML.
+description: 通过本地脚本确定性地拉取运维图谱后端数据、解析自然语言过滤条件，并基于内置 HTML 模板生成或更新看板。适用于 agent 必须通过脚本产出图谱页面、不能手写 HTML 的场景。
 ---
 
-# Ops Dashboard Skill
+# 运维图谱看板 Skill
 
-Use this skill to produce the dashboard only through the bundled scripts and bundled HTML template.
+这个 skill 只能通过内置脚本和内置 HTML 模板产出看板。
 
-The generated HTML is self-contained and host-framework agnostic:
-- Do not depend on Vue/React/App.vue.
-- Support URL-driven control and `postMessage` control out of the box.
+生成的 HTML 是自包含的，并且不依赖宿主前端框架：
+- 不依赖 Vue、React 或 `App.vue`
+- 默认支持 URL 参数控制和 `postMessage` 控制
 
-## Non-Negotiable Rules
+## 不可违反的规则
 
-- MUST execute `python3 scripts/run_ops_dashboard.py ...` for normal skill usage.
-- MUST use `assets/dashboard.template.html`; do not hand-write a new HTML page.
-- MUST NOT redesign the page layout in the response or generate a substitute HTML file.
-- MUST NOT invent data or fallback HTML when script execution fails.
-- If the backend or script fails, stop and report the real failure.
-- Final response MUST include the exact `htmlPath`; in live mode it MUST also include `url`.
-- If `--api-url` is provided, treat backend errors as fatal. The runner already defaults to strict backend mode for this case.
+- 正常使用时，必须执行 `python3 scripts/run_ops_dashboard.py ...`
+- 必须使用 `assets/dashboard.template.html`，不能手写新的 HTML 页面替代
+- 不能在回复里重新设计页面，也不能生成一个“功能相似但不是模板产物”的 HTML
+- 脚本或后端失败时，不能自己编造数据或兜底 HTML
+- 后端或脚本失败后，必须直接报告真实错误
+- 最终回复里必须包含准确的 `htmlPath`；如果是 live 模式，还必须包含 `url`
+- 如果传入了 `--api-url`，后端错误必须按致命错误处理；runner 默认也会按严格模式执行
 
-## Workflow
+## 工作流
 
-### Step 1: Required execution path
+### 第 1 步：固定入口
 
-Always use the single runner below. It decides automatically:
-- first run: create the live session and open the page
-- later runs: update the existing page without regenerating `dashboard.html`
+始终使用下面这个统一入口。它会自动判断：
+- 第一次运行：创建 live session 并打开页面
+- 后续运行：更新已有页面，而不是重复生成 `dashboard.html`
 
 ```bash
 python3 scripts/run_ops_dashboard.py \
@@ -36,33 +36,34 @@ python3 scripts/run_ops_dashboard.py \
   --prompt "看全部关系看板"
 ```
 
-The runner behavior is fixed:
-- if no live session exists, it calls `scripts/dashboard_session.py start`
-- if a live session already exists, it calls `scripts/dashboard_session.py update`
-- if `--api-url` is present, backend fetch failure is fatal by default
-- if `--api-url` is absent, mock data is allowed
-- if `assets/dashboard.template.html` changed since the last live run, the next update automatically rebuilds `dashboard.html` once
+runner 的行为是固定的：
+- 如果 live session 不存在，就调用 `scripts/dashboard_session.py start`
+- 如果 live session 已存在，就调用 `scripts/dashboard_session.py update`
+- 如果传了 `--api-url`，后端获取失败默认按致命错误处理
+- 如果没传 `--api-url`，允许使用 mock 数据
+- 如果 `assets/dashboard.template.html` 相比上次 live 运行发生变化，下一次 update 会自动重建一次 `dashboard.html`
 
-### Step 2: Choose data source
+### 第 2 步：选择数据源
 
-Pass one of these source configurations to `scripts/run_ops_dashboard.py`:
-- Backend mode: pass `--api-url` to fetch live data.
-- If the backend filters by application, also pass `--app-id` so the request becomes `?appId=...`.
-- If users refer to apps by spoken Chinese names, pass `--app-alias-file` with a JSON map from alias -> appId/app_user.
-- Mock mode: omit `--api-url`, or pass `--mock-file`.
+调用 `scripts/run_ops_dashboard.py` 时，按下面两种模式之一提供数据源：
 
-Mock backend script for local simulation:
+- 后端模式：传 `--api-url`，从真实接口拉取数据
+- 如果后端支持按应用过滤，再额外传 `--app-id`，请求会拼成 `?appId=...`
+- 如果用户会用中文口语名称提应用，再额外传 `--app-alias-file`，文件内容是 `alias -> appId/app_user` 的 JSON 映射
+- Mock 模式：不传 `--api-url`，或者显式传 `--mock-file`
+
+本地模拟后端脚本：
 
 ```bash
 python3 scripts/mock_backend.py --port 8787
 ```
 
-Default API endpoint returned by the mock backend:
+默认 mock 接口地址：
 - `http://127.0.0.1:8787/api/ops-graph`
 
-### Step 3: Natural-language execution
+### 第 3 步：自然语言执行
 
-Normal usage:
+常规调用示例：
 
 ```bash
 python3 scripts/run_ops_dashboard.py \
@@ -72,24 +73,24 @@ python3 scripts/run_ops_dashboard.py \
   --prompt "看 P002 告警 API，关键词: 风控"
 ```
 
-What the runner and bundled scripts do:
-- Load backend payload or mock payload.
-- Normalize either `data.nodes/links` or `data.datas[].nodes/relations`.
-- For your internal graph shape, normalized `project` prefers `nodes[].app_user`; `--app-id` is used for request filtering and fallback only.
-- Infer filters (`project`, `entityType`, `relationType`, `health`, `keyword`) from prompt.
-- Render only through `assets/dashboard.template.html`.
-- In live mode, generate HTML once and update only session JSON on later prompts.
+runner 和内置脚本会完成这些事情：
+- 加载后端返回或 mock 返回的数据
+- 兼容并归一化 `data.nodes/links` 和 `data.datas[].nodes/relations`
+- 对你当前的图谱结构，内部 `project` 优先取 `nodes[].app_user`；`--app-id` 主要用于请求过滤和兜底
+- 根据 prompt 推断过滤条件：`project`、`entityType`、`relationType`、`health`、`keyword`
+- 只通过 `assets/dashboard.template.html` 渲染页面
+- 在 live 模式下只生成一次 HTML，后续 prompt 只更新 session JSON
 
-The generated HTML includes:
-- `window.__OPS_DASHBOARD_SKILL__` runtime API
-- `window.postMessage` handlers for agent orchestration
-- URL parameter bootstrap support (`prompt`, `project`, `entityType`, `relationType`, `health`, `keyword`)
+生成后的 HTML 默认提供：
+- `window.__OPS_DASHBOARD_SKILL__` 运行时 API
+- `window.postMessage` 消息处理
+- 基于 URL 参数的初始化能力，例如 `prompt`、`project`、`entityType`、`relationType`、`health`、`keyword`
 
-### Step 4: Live session mode details
+### 第 4 步：live session 模式
 
-The runner defaults to this live mode, but the underlying script is here for debugging:
+runner 默认就是 live 模式。下面是调试时可直接使用的底层脚本：
 
-Start a live session once:
+首次启动：
 
 ```bash
 python3 scripts/dashboard_session.py start \
@@ -99,7 +100,7 @@ python3 scripts/dashboard_session.py start \
   --session-dir ./runtime/default-session
 ```
 
-Update the existing page later:
+后续更新：
 
 ```bash
 python3 scripts/dashboard_session.py update \
@@ -107,122 +108,128 @@ python3 scripts/dashboard_session.py update \
   --prompt "只看 P001 数据库告警"
 ```
 
-Live mode behavior:
-- `start` renders HTML once, starts a local static server, and can open the page automatically
-- `update` only rewrites session JSON files; it does not regenerate the HTML file
-- exception: if the bundled template changed or the session HTML is missing, `update` automatically rebuilds the HTML once
-- `update` refreshes backend/mock data by default, then reapplies natural-language filters
-- pass `--no-refresh-data` if you only want to reuse the cached dataset and update filters/UI
+live 模式行为：
+- `start` 只渲染一次 HTML，启动本地静态服务，并可自动打开浏览器
+- `update` 默认只改 session JSON，不重新生成 HTML 文件
+- 例外：如果模板改了，或者 session HTML 丢失了，`update` 会自动重建一次 HTML
+- `update` 默认会重新拉一次后端或 mock 数据，然后重新套用自然语言过滤
+- 如果只想复用缓存数据、不想重新取数，可以传 `--no-refresh-data`
 
-Important:
-- the local port in live mode is only for serving the already-open HTML and session JSON files
-- backend fetching itself does not require this local port
-- the local port exists because an open browser page needs an HTTP URL to poll fresh JSON reliably
+重要说明：
+- live 模式里的本地端口只是为了给已打开的页面提供一个可访问的 HTTP 地址，以及暴露 session JSON
+- 后端接口拉取本身并不依赖这个本地端口
+- 本地端口存在的原因，是浏览器页面要通过 HTTP 稳定轮询最新状态
 
-### Step 5: Open output
+### 第 5 步：返回结果
 
-After running the skill:
-- Always include the absolute HTML path in the final response.
-- In live mode, also include the local URL.
-- If local opening fails, still return the exact path/URL and mention the open failure.
+skill 执行完成后：
+- 最终回复必须包含绝对路径的 HTML 文件地址
+- 如果是 live 模式，还必须包含本地 URL
+- 如果自动打开失败，也仍然要返回准确的 path / URL，并说明打开失败
 
-For live session mode, include both:
-- the absolute HTML path
-- the live URL such as `http://127.0.0.1:8765/dashboard.html`
+live 模式下必须同时返回：
+- 绝对路径 HTML
+- 类似 `http://127.0.0.1:8765/dashboard.html` 这样的 URL
 
-Use any static server only when the user explicitly asks for HTTP preview or remote sharing:
+只有在用户明确要求 HTTP 预览或远程分享时，才额外启用通用静态服务，例如：
 
 ```bash
 python3 -m http.server 9000 --directory ./out
 ```
 
-Open:
+然后访问：
 - `http://127.0.0.1:9000/dashboard.html`
 
-## Natural-language filter behavior
+## 自然语言过滤规则
 
-Supported intent extraction in `scripts/build_dashboard.py`:
-- Project: `P001`, `P002`, `全部项目`, `跨项目`
-- Application/project identifiers: `appId=xxx`, `app_id=xxx`, `app_user=xxx`, `应用 xxx`, `项目 xxx`
-- Entity type: `API`, `服务`, `数据库`, `中间件`, `计算`, `告警`, `用户`, `域名`
-- Resource type: `kafka`, `docker`, `redis`, `elasticsearch`, `mysql`, `postgres`, `oracle`, `rabbitmq`, `rocketmq` (支持同时识别多个并输出逗号列表；可容错常见拼写如 `docekr` → `docker`)
-- Relation type: `访问`, `调用`, `包含`, `同一`, `负载`, `承载`, `监控`
-- Health: `正常`, `告警`, `异常`
-- Keyword: `关键词: xxx` or quoted string
-- Upstream/downstream: `上下游`, `上游`, `下游`, `依赖`, `链路`, `调用链` (adds 1-hop neighbors of matched nodes)
+`scripts/build_dashboard.py` 当前支持的自然语言解析能力：
 
-If no condition is recognized, keep defaults (`all`) and still render dashboard.
+- 项目：`P001`、`P002`、`全部项目`、`跨项目`
+- 应用 / 项目标识：`appId=xxx`、`app_id=xxx`、`app_user=xxx`、`应用 xxx`、`项目 xxx`
+- 实体类型：`API`、`服务`、`数据库`、`中间件`、`计算`、`告警`、`用户`、`域名`
+- 资源类型：`kafka`、`docker`、`redis`、`elasticsearch`、`mysql`、`postgres`、`oracle`、`rabbitmq`、`rocketmq`
+  这部分支持同时识别多个资源类型并输出逗号列表，也支持常见拼写容错，例如 `docekr` 会被识别为 `docker`
+- 关系类型：`访问`、`调用`、`包含`、`同一`、`负载`、`承载`、`监控`
+- 健康状态：`正常`、`告警`、`异常`
+- 关键词：`关键词: xxx` 或引号包裹的内容
+- 上下游：`上下游`、`上游`、`下游`、`依赖`、`链路`、`调用链`
+  识别后会自动把命中的节点向外扩 1 跳邻居
 
-## Output contract
+如果一句话里没有识别到任何条件，就保留默认值 `all`，但仍然会生成看板。
 
-`scripts/run_ops_dashboard.py` is the required skill entrypoint. It produces:
+## 输出约定
+
+`scripts/run_ops_dashboard.py` 是这个 skill 唯一允许的统一入口，它会输出：
 - `htmlPath`
-- `url` for live mode
+- `url`（仅 live 模式）
 - `mode: start|update`
-- `refreshedData: true|false` on updates
+- `refreshedData: true|false`（update 时是否重新拉取过数据）
 
-`build_dashboard.py` produces:
-- HTML dashboard file at `--output`
-- Sidecar JSON `${output}.meta.json` with:
-  - inferred filters
-  - summary counts
-  - source metadata
-- When `--open-output` is passed, the script also attempts to open the local HTML file
+`build_dashboard.py` 会输出：
+- `--output` 指定的 HTML 文件
+- `${output}.meta.json` 辅助 JSON，里面包含：
+  - 推断出的过滤条件
+  - 汇总统计
+  - 数据源元信息
+- 如果传了 `--open-output`，脚本还会尝试直接打开本地 HTML 文件
 
-`dashboard_session.py start` produces:
-- a session HTML file
-- `session-config.json`, `session-control.json`, `session-state.json`
-- a local live URL
-- optional browser auto-open result
+`dashboard_session.py start` 会输出：
+- session HTML 文件
+- `session-config.json`、`session-control.json`、`session-state.json`
+- 本地 live URL
+- 可选的浏览器自动打开结果
 
-`dashboard_session.py update` produces:
-- updated session JSON files
-- the same HTML path as the original session
-- `refreshedData: true|false` so the caller knows whether backend data was reloaded
-- `rebuiltHtml: true|false` so the caller knows whether template changes caused an HTML rebuild
+`dashboard_session.py update` 会输出：
+- 更新后的 session JSON 文件
+- 原 session 里的 HTML 路径
+- `refreshedData: true|false`
+- `rebuiltHtml: true|false`
 
-## Runtime control protocol (for any host agent)
+## 运行时控制协议
 
-Use either direct JS calls or `postMessage` after loading the generated HTML.
+宿主 agent 加载生成后的 HTML 后，可以通过 JS API 或 `postMessage` 控制它。
 
-### Direct JS API
+### 直接 JS API
 
 - `window.__OPS_DASHBOARD_SKILL__.run({ prompt, filters })`
 - `window.__OPS_DASHBOARD_SKILL__.applyPrompt(prompt, filters?)`
 - `window.__OPS_DASHBOARD_SKILL__.setFilters(filters)`
 - `window.__OPS_DASHBOARD_SKILL__.getState()`
 
-### postMessage API
+### `postMessage` API
 
-Request messages:
+请求消息：
 - `opsgraph.run`
 - `opsgraph.applyPrompt`
 - `opsgraph.setFilters`
 - `opsgraph.getState`
 
-Response message:
+响应消息：
 - `opsgraph.result`
 
-## Customize this skill
+## 如何定制这个 skill
 
-- Update schema expectations: `references/data-schema.md`
-- Update NL parsing rules: `scripts/build_dashboard.py` (`infer_filters_from_prompt` section)
-- Update UI template: `assets/dashboard.template.html`
-- Update the deterministic entrypoint: `scripts/run_ops_dashboard.py`
-- Replace mock data: `assets/mock_data.json`
+- 修改数据结构约定：`references/data-schema.md`
+- 修改自然语言解析规则：`scripts/build_dashboard.py` 里的 `infer_filters_from_prompt`
+- 修改前端模板：`assets/dashboard.template.html`
+- 修改统一入口：`scripts/run_ops_dashboard.py`
+- 替换 mock 数据：`assets/mock_data.json`
 
-## Resources
+## 资源说明
 
-### scripts/
-- `run_ops_dashboard.py`: required deterministic entrypoint for agents; auto start/update live session
-- `build_dashboard.py`: fetch + parse NL + filter + render HTML
-- `dashboard_session.py`: render once, then update session JSON for a live dashboard page
-- `mock_backend.py`: serve mock API payload for local simulation
+### `scripts/`
 
-### references/
-- `data-schema.md`: expected backend payload and normalization rules
-- `app-aliases.example.json`: sample spoken-name to appId/app_user mapping
+- `run_ops_dashboard.py`：这个 skill 的统一入口，自动判断 start / update
+- `build_dashboard.py`：拉数据、解析自然语言、过滤数据、渲染 HTML
+- `dashboard_session.py`：只在首次生成 HTML，后续通过 session JSON 更新页面
+- `mock_backend.py`：本地模拟后端接口
 
-### assets/
-- `dashboard.template.html`: portable HTML dashboard template
-- `mock_data.json`: simulation dataset
+### `references/`
+
+- `data-schema.md`：后端返回结构和内部归一化规则
+- `app-aliases.example.json`：中文口语名称到 `appId` / `app_user` 的映射示例
+
+### `assets/`
+
+- `dashboard.template.html`：可移植的 HTML 看板模板
+- `mock_data.json`：默认模拟数据

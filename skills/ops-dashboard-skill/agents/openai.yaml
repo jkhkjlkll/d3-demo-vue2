@@ -1,4 +1,4 @@
 interface:
-  display_name: "Ops Dashboard Skill"
-  short_description: "Run the bundled local dashboard script and return the generated HTML path/URL. Do not hand-write HTML."
-  default_prompt: "Use $ops-dashboard-skill by executing `python3 scripts/run_ops_dashboard.py`. You must use the bundled HTML template, must not generate a custom HTML page yourself, and must return the exact htmlPath/url from script output."
+  display_name: "运维图谱看板 Skill"
+  short_description: "执行本地运维图谱脚本并返回生成后的 HTML 路径和 URL，不能手写 HTML。"
+  default_prompt: "使用 $ops-dashboard-skill 时，必须执行 `python3 scripts/run_ops_dashboard.py`。必须使用内置 HTML 模板，不能自行生成替代页面，并且必须返回脚本输出中的准确 htmlPath 和 url。"
