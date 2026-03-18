@@ -1,6 +1,6 @@
 ---
 name: ops-dashboard-skill
-description: 通过本地脚本确定性地拉取运维图谱后端数据、解析自然语言过滤条件，并基于内置 HTML 模板生成或更新看板。适用于 agent 必须通过脚本产出图谱页面、不能手写 HTML 的场景。
+description: 通过本地脚本确定性地拉取运维图谱数据（支持后端 API、本地 MCP JSON、mock）、解析自然语言过滤条件，并基于内置 HTML 模板生成或更新看板。适用于 agent 必须通过脚本产出图谱页面、不能手写 HTML 的场景。
 ---
 
 # 运维图谱看板 Skill
@@ -39,18 +39,22 @@ python3 scripts/run_ops_dashboard.py \
 runner 的行为是固定的：
 - 如果 live session 不存在，就调用 `scripts/dashboard_session.py start`
 - 如果 live session 已存在，就调用 `scripts/dashboard_session.py update`
+- 如果传了 `--input-json`，优先使用本地 JSON 数据源（通常来自 MCP）
 - 如果传了 `--api-url`，后端获取失败默认按致命错误处理
-- 如果没传 `--api-url`，允许使用 mock 数据
+- 如果没传 `--input-json` 且没传 `--api-url`，允许使用 mock 数据
 - 如果 `assets/dashboard.template.html` 相比上次 live 运行发生变化，下一次 update 会自动重建一次 `dashboard.html`
 
 ### 第 2 步：选择数据源
 
-调用 `scripts/run_ops_dashboard.py` 时，按下面两种模式之一提供数据源：
+调用 `scripts/run_ops_dashboard.py` 时，按下面三种模式之一提供数据源：
 
 - 后端模式：传 `--api-url`，从真实接口拉取数据
 - 如果后端支持按应用过滤，再额外传 `--app-id`，请求会拼成 `?appId=...`
 - 如果用户会用中文口语名称提应用，再额外传 `--app-alias-file`，文件内容是 `alias -> appId/app_user` 的 JSON 映射
+- MCP / 外部采集模式：传 `--input-json`，直接读取本地 JSON（例如 agent 先调 MCP 并写入临时文件）
 - Mock 模式：不传 `--api-url`，或者显式传 `--mock-file`
+
+数据源优先级固定为：`--input-json` > `--api-url` > `--mock-file`
 
 本地模拟后端脚本：
 
@@ -73,8 +77,17 @@ python3 scripts/run_ops_dashboard.py \
   --prompt "看 P002 告警 API，关键词: 风控"
 ```
 
+MCP 数据源调用示例（一个 skill 内完成）：
+
+```bash
+python3 scripts/run_ops_dashboard.py \
+  --input-json /tmp/ops-dashboard-mcp.json \
+  --app-alias-file ./references/app-aliases.example.json \
+  --prompt "看 P002 的全部 docker 上下游数据"
+```
+
 runner 和内置脚本会完成这些事情：
-- 加载后端返回或 mock 返回的数据
+- 加载 `input-json`、后端返回或 mock 返回的数据
 - 兼容并归一化 `data.nodes/links` 和 `data.datas[].nodes/relations`
 - 对你当前的图谱结构，内部 `project` 优先取 `nodes[].app_user`；`--app-id` 主要用于请求过滤和兜底
 - 根据 prompt 推断过滤条件：`project`、`entityType`、`relationType`、`health`、`keyword`
@@ -211,6 +224,7 @@ python3 -m http.server 9000 --directory ./out
 
 - 修改数据结构约定：`references/data-schema.md`
 - 修改自然语言解析规则：`scripts/build_dashboard.py` 里的 `infer_filters_from_prompt`
+- 修改数据源选择逻辑：`scripts/build_dashboard.py` 里的 `load_source_data`
 - 修改前端模板：`assets/dashboard.template.html`
 - 修改统一入口：`scripts/run_ops_dashboard.py`
 - 替换 mock 数据：`assets/mock_data.json`

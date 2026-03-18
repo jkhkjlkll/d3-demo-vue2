@@ -207,6 +207,11 @@ class BuildContext:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build dashboard from backend data + natural language")
     parser.add_argument("--api-url", default="", help="Backend endpoint returning graph JSON")
+    parser.add_argument(
+        "--input-json",
+        default="",
+        help="Local JSON payload path (for MCP or external collectors); takes precedence over api/mock",
+    )
     parser.add_argument("--app-id", default="", help="Optional appId query parameter passed to backend API")
     parser.add_argument(
         "--app-alias-file",
@@ -885,6 +890,17 @@ def open_output_file(path: Path) -> tuple[bool, str]:
 
 
 def load_source_data(args: argparse.Namespace) -> Tuple[Dict[str, List[Dict]], BuildContext]:
+    input_json = str(getattr(args, "input_json", "") or "").strip()
+    if input_json:
+        input_path = Path(input_json).expanduser().resolve()
+        payload = read_json_file(input_path)
+        normalized = normalize_payload(payload, default_project=args.app_id or "UNKNOWN")
+        return normalized, BuildContext(
+            source=f"input:{input_path}",
+            raw_node_count=len(normalized["nodes"]),
+            raw_link_count=len(normalized["links"]),
+        )
+
     if args.api_url:
         try:
             payload = fetch_backend_json(args.api_url, timeout=args.timeout, app_id=args.app_id)

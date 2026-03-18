@@ -26,6 +26,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prompt", required=True, help="Natural-language request")
     parser.add_argument("--session-dir", default=str(DEFAULT_SESSION_DIR), help="Live session directory")
     parser.add_argument("--api-url", default="", help="Backend endpoint returning graph JSON")
+    parser.add_argument(
+        "--input-json",
+        default="",
+        help="Local JSON payload path (for MCP/external collectors); takes precedence over api/mock",
+    )
     parser.add_argument("--app-id", default="", help="Optional appId query parameter passed to backend API")
     parser.add_argument("--app-alias-file", default="", help="Optional JSON file mapping spoken app names to appId/app_user")
     parser.add_argument("--mock-file", default=str(builder.DEFAULT_MOCK_FILE), help="Mock data JSON path")
@@ -77,6 +82,7 @@ def main() -> int:
     if is_start:
         start_args = argparse.Namespace(
             api_url=args.api_url,
+            input_json=args.input_json,
             app_id=args.app_id,
             app_alias_file=args.app_alias_file,
             prompt=args.prompt,
@@ -96,6 +102,7 @@ def main() -> int:
         prompt=args.prompt,
         app_id=args.app_id,
         api_url=args.api_url,
+        input_json=args.input_json,
         app_alias_file=args.app_alias_file,
         mock_file=args.mock_file,
         timeout=args.timeout,

@@ -53,6 +53,7 @@ def parse_args() -> argparse.Namespace:
     update.add_argument("--prompt", default="", help="Natural-language request used to infer new filters")
     update.add_argument("--app-id", default="", help="Optional appId override for this update")
     update.add_argument("--api-url", default="", help="Optional API URL override for this update")
+    update.add_argument("--input-json", default="", help="Optional local JSON payload override for this update")
     update.add_argument("--app-alias-file", default="", help="Optional alias file override for this update")
     update.add_argument("--mock-file", default="", help="Optional mock file override for this update")
     update.add_argument("--timeout", type=float, default=0.0, help="Optional timeout override for this update")
@@ -74,6 +75,11 @@ def parse_args() -> argparse.Namespace:
 
 def add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--api-url", default="", help="Backend endpoint returning graph JSON")
+    parser.add_argument(
+        "--input-json",
+        default="",
+        help="Local JSON payload path (for MCP/external collectors); takes precedence over api/mock",
+    )
     parser.add_argument("--app-id", default="", help="Optional appId query parameter passed to backend API")
     parser.add_argument("--app-alias-file", default="", help="Optional JSON file mapping spoken app names to appId/app_user values")
     parser.add_argument("--prompt", default="", help="Natural-language request used to infer filters")
@@ -176,6 +182,7 @@ def start_server(session_dir: Path, port: int) -> Tuple[int, Path]:
 def runtime_args_to_namespace(config: Dict) -> argparse.Namespace:
     return argparse.Namespace(
         api_url=config.get("api_url", ""),
+        input_json=config.get("input_json", ""),
         app_id=config.get("app_id", ""),
         timeout=config.get("timeout", 6.0),
         strict_backend=bool(config.get("strict_backend", False)),
@@ -381,6 +388,7 @@ def command_start(args: argparse.Namespace) -> int:
     app_aliases = builder.load_app_aliases(args.app_alias_file)
     config = {
         "api_url": args.api_url,
+        "input_json": str(Path(args.input_json).expanduser().resolve()) if args.input_json else "",
         "app_id": args.app_id,
         "app_alias_file": str(Path(args.app_alias_file).expanduser().resolve()) if args.app_alias_file else "",
         "app_aliases": app_aliases,
@@ -480,6 +488,8 @@ def command_update(args: argparse.Namespace) -> int:
     config = read_json_file(config_path)
     if args.api_url:
         config["api_url"] = args.api_url
+    if args.input_json:
+        config["input_json"] = str(Path(args.input_json).expanduser().resolve())
     if args.app_id:
         config["app_id"] = args.app_id
     if args.mock_file:

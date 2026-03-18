@@ -1,4 +1,0 @@
-interface:
-  display_name: "运维图谱 MCP Skill"
-  short_description: "先通过 MCP 获取图谱数据，再复用现有运维图谱脚本生成 HTML 看板。"
-  default_prompt: "使用 $ops-dashboard-mcp-skill 时，先调用 MCP 获取图谱数据并整理成本地 JSON，再执行 `python3 skills/ops-dashboard-skill/scripts/run_ops_dashboard.py --mock-file <json>`。不要修改现有 ops-dashboard-skill，也不要手写 HTML。"
