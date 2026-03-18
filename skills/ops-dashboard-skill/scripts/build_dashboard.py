@@ -276,6 +276,11 @@ def normalize_health_display(value: str) -> str:
     return HEALTH_KEY_TO_DISPLAY[key]
 
 
+def normalize_health_text(value: object, default: str = "正常") -> str:
+    text = str(value or "").strip()
+    return text or default
+
+
 def key_to_health(key: str) -> str:
     return HEALTH_KEY_TO_DISPLAY.get(key, "正常")
 
@@ -313,6 +318,16 @@ def normalize_node(raw: Dict, default_project: str = "UNKNOWN") -> Dict | None:
     if not node_id:
         return None
 
+    resource_type_raw = (
+        raw.get("resource_type")
+        or raw.get("resourceType")
+        or raw.get("resource_kind")
+        or raw.get("resourceKind")
+        or ""
+    )
+    resource_type_text = str(resource_type_raw or "").strip()
+    resource_type_key = resource_type_text.lower()
+
     node_type = normalize_entity_key(
         str(raw.get("type") or raw.get("entity_type") or raw.get("resource_type") or "unknown")
     )
@@ -327,12 +342,16 @@ def normalize_node(raw: Dict, default_project: str = "UNKNOWN") -> Dict | None:
     ).strip() or "UNKNOWN"
     display_name = str(raw.get("label") or raw.get("name") or raw.get("resource_id") or node_id)
     health_value = raw.get("health") or raw.get("health_status") or raw.get("lifecycle_state") or "正常"
+    health_text = normalize_health_text(health_value)
 
     return {
         "id": node_id,
         "label": display_name,
         "type": node_type,
         "health": normalize_health_display(str(health_value)),
+        "healthText": health_text,
+        "resourceType": resource_type_key,
+        "resourceTypeRaw": resource_type_text,
         "project": project,
     }
 
@@ -347,6 +366,7 @@ def normalize_link(raw: Dict) -> Dict | None:
         "target": target,
         "type": normalize_relation_key(str(raw.get("type") or raw.get("relation_type") or "unknown")),
         "health": normalize_health_display(str(raw.get("health") or raw.get("health_status") or "正常")),
+        "healthText": normalize_health_text(raw.get("health") or raw.get("health_status") or "正常"),
     }
 
 
@@ -485,6 +505,8 @@ def infer_filters_from_prompt(
         "relationType": "all",
         "health": "all",
         "keyword": "",
+        "resourceType": "all",
+        "expandNeighbors": "false",
     }
     text = str(prompt or "").strip()
     if not text:
@@ -557,12 +579,53 @@ def infer_filters_from_prompt(
     elif re.search(r"正常|healthy|\bok\b", low):
         filters["health"] = "ok"
 
+    resource_hints = [
+        ("kafka", ["kafka", "kafak"]),
+        ("docker", ["docker", "docekr", "容器"]),
+        ("redis", ["redis"]),
+        ("elasticsearch", ["elasticsearch", "es"]),
+        ("mysql", ["mysql"]),
+        ("postgres", ["postgres", "postgresql"]),
+        ("oracle", ["oracle"]),
+        ("rabbitmq", ["rabbitmq"]),
+        ("rocketmq", ["rocketmq"]),
+    ]
+    matched_resources: list[str] = []
+    for key, hints in resource_hints:
+        if any(h in low for h in hints):
+            matched_resources.append(key)
+    if matched_resources:
+        deduped = []
+        for item in matched_resources:
+            if item not in deduped:
+                deduped.append(item)
+        filters["resourceType"] = ",".join(deduped)
+
+    if re.search(r"上下游|上游|下游|依赖|链路|调用链|upstream|downstream", low):
+        filters["expandNeighbors"] = "true"
+
     filters["keyword"] = infer_keyword(text)
     return filters
 
 
 def apply_filters(nodes: List[Dict], links: List[Dict], filters: Dict[str, str]) -> Tuple[List[Dict], List[Dict]]:
     keyword = filters.get("keyword", "").strip().lower()
+    resource_filter_raw = str(filters.get("resourceType", "all") or "").strip().lower()
+    resource_alias = {
+        "docekr": "docker",
+        "dockr": "docker",
+        "es": "elasticsearch",
+        "postgresql": "postgres",
+    }
+    resource_filters = []
+    for part in re.split(r"[,\s，/]+", resource_filter_raw):
+        token = part.strip()
+        if not token or token == "all":
+            continue
+        token = resource_alias.get(token, token)
+        if token not in resource_filters:
+            resource_filters.append(token)
+    expand_neighbors = str(filters.get("expandNeighbors", "")).strip().lower() in {"1", "true", "yes", "on"}
 
     def match_node(node: Dict) -> bool:
         if filters.get("project", "all") != "all" and node.get("project") != filters["project"]:
@@ -571,21 +634,49 @@ def apply_filters(nodes: List[Dict], links: List[Dict], filters: Dict[str, str])
             return False
         if filters.get("health", "all") != "all" and health_to_key(node.get("health", "正常")) != filters["health"]:
             return False
+        if resource_filters:
+            node_resource = str(node.get("resourceType", "") or "").strip().lower()
+            label = str(node.get("label", "") or "").lower()
+            node_id = str(node.get("id", "") or "").lower()
+            if not any(
+                rt in node_resource or rt in label or rt in node_id
+                for rt in resource_filters
+            ):
+                return False
         if keyword and keyword not in node.get("label", "").lower() and keyword not in node.get("id", "").lower():
             return False
         return True
 
     filtered_nodes = [node for node in nodes if match_node(node)]
-    node_ids = {node["id"] for node in filtered_nodes}
+    base_ids = {node["id"] for node in filtered_nodes}
 
-    def match_link(link: Dict) -> bool:
-        if link.get("source") not in node_ids or link.get("target") not in node_ids:
-            return False
+    def link_matches_type(link: Dict) -> bool:
         if filters.get("relationType", "all") != "all" and link.get("type") != filters["relationType"]:
             return False
         return True
 
-    filtered_links = [link for link in links if match_link(link)]
+    if expand_neighbors and base_ids:
+        candidate_links = [link for link in links if link_matches_type(link)]
+        neighbor_ids = set(base_ids)
+        for link in candidate_links:
+            if link.get("source") in base_ids or link.get("target") in base_ids:
+                neighbor_ids.add(link.get("source"))
+                neighbor_ids.add(link.get("target"))
+        expanded_nodes = [node for node in nodes if node.get("id") in neighbor_ids]
+        expanded_links = [
+            link for link in candidate_links
+            if link.get("source") in neighbor_ids and link.get("target") in neighbor_ids
+        ]
+        return expanded_nodes, expanded_links
+
+    node_ids = {node["id"] for node in filtered_nodes}
+    filtered_links = [
+        link
+        for link in links
+        if link.get("source") in node_ids
+        and link.get("target") in node_ids
+        and link_matches_type(link)
+    ]
     return filtered_nodes, filtered_links
 
 
@@ -671,6 +762,8 @@ def to_graph_data(nodes: List[Dict], links: List[Dict]) -> Dict[str, List[Dict]]
                 "entity_type": key_to_entity_label(node.get("type", "unknown")),
                 "project_id": node.get("project", "UNKNOWN"),
                 "health_status": health_display,
+                "health_text": node.get("healthText", health_display),
+                "resource_type": node.get("resourceTypeRaw") or node.get("resourceType") or "",
                 "created_at": now,
                 "updated_at": now,
             }
@@ -690,6 +783,7 @@ def to_graph_data(nodes: List[Dict], links: List[Dict]) -> Dict[str, List[Dict]]
                 "source_entity_id": link.get("source"),
                 "target_entity_id": link.get("target"),
                 "health_status": relation_health,
+                "health_text": link.get("healthText", relation_health),
                 "created_at": now,
                 "updated_at": now,
             }

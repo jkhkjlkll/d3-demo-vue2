@@ -101,10 +101,10 @@ Field mapping used by the adapter:
 - Relation target: `relations[].endNodeId`
 - Relation type: `relations[].relation_type`
 
-Lifecycle health mapping:
-- `Active` -> `正常`
-- `Recycle` -> `异常`
-- unknown values default to `正常`
+Lifecycle state rendering:
+- preserve the original `nodes[].lifecycle_state` text for UI display
+- example: `Active` stays `Active`, `Recycle` stays `Recycle`
+- internal dashboard health coloring/filtering may still use normalized categories, but displayed text should stay the original lifecycle state value
 
 Known relation aliases:
 - `contains` -> `包含`
@@ -154,6 +154,8 @@ Inferred filter object:
   "entityType": "all|api|service|db|middleware|compute|alarm|user|domain",
   "relationType": "all|access|call|lb|host|monitor",
   "health": "all|ok|warn|err",
-  "keyword": "string"
+  "keyword": "string",
+  "resourceType": "all|kafka|docker|redis|elasticsearch|mysql|postgres|oracle|rabbitmq|rocketmq (comma-separated supported)",
+  "expandNeighbors": "true|false"
 }
 ```

@@ -500,16 +500,21 @@ select option { background: var(--panel2); color: var(--text); }
 .node-g.selected .node-body { filter: brightness(1.3) drop-shadow(0 0 10px currentColor); }
 .node-g.dimmed { opacity: 0.18; }
 
-.edge-path { fill: none; transition: stroke-opacity 0.2s; }
-.edge-path.dimmed { stroke-opacity: 0.05 !important; }
-.edge-path.highlighted { stroke-opacity: 0.9 !important; stroke-width: 1.8px !important; }
+.edge-path { fill: none; transition: stroke-opacity 0.2s, stroke-width 0.2s; }
+.edge-path.dimmed { stroke-opacity: 0.03 !important; }
+.edge-path.highlighted { stroke-opacity: 0.92 !important; stroke-width: 2px !important; }
+.edge-path.edge-cross { stroke-opacity: 0.28; }
+.edge-path.edge-thin { stroke-width: 1.1px; }
+.edge-label { opacity: 0; transition: opacity 0.15s; }
+.edge-label.edge-label-active { opacity: 0.9; }
 /* ── AGGREGATE MODE ──────────────────────────────────── */
 .agg-node-g { cursor: pointer; }
 .agg-node-g:hover .agg-body { filter: brightness(1.3); }
 .agg-mode-active #agg-toggle-btn { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 /* Aggregate edge label pill */
-.agg-edge-pill { pointer-events: none; }
+.agg-edge-pill { pointer-events: none; opacity: 0; transition: opacity 0.15s; }
+.agg-edge-pill.visible { opacity: 0.9; }
 
 /* ── ENTITY LIST DRAWER (slides in from left over sidebar) ───────────── */
 .entity-drawer {
@@ -633,7 +638,7 @@ select option { background: var(--panel2); color: var(--text); }
 .skill-legend-line {
   width: 22px; height: 2px; flex-shrink: 0; border-radius: 1px;
 }
-.edge-path { animation: edge-flow 2.4s linear infinite; }
+.edge-path.edge-flow { animation: edge-flow 2.4s linear infinite; }
 .dep-edge-flow { animation: dep-flow 2s linear infinite; }
 @keyframes dep-flow { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
 @keyframes edge-flow { to { stroke-dashoffset: -24; } }
@@ -1110,6 +1115,9 @@ let autoRefreshTimer = null;
 let svg, g, zoom;
 let lastTransform = d3.zoomIdentity;
 let ctxTargetNode = null;
+let edgeLabelMode = 'hover';
+let showEdgeLabelsByDefault = false;
+let enableEdgeFlow = false;
 
 // ============================================================
 //  AGGREGATE MODE ENGINE
@@ -1226,9 +1234,24 @@ function renderAggregateGraph(){
   // 2. Assign each node a "column" (layer) via longest-path / topological sort
   // 3. Spread nodes within each column vertically
 
+  const aggCount = aggNodes.length;
+  const aggEdgeCount = aggEdges.length;
+  const aggScale = (() => {
+    let scale = 1;
+    if(aggCount <= 4) scale = 1.85;
+    else if(aggCount <= 6) scale = 1.6;
+    else if(aggCount <= 9) scale = 1.35;
+    else if(aggCount <= 12) scale = 1.2;
+    const density = aggEdgeCount / Math.max(1, aggCount);
+    if(density > 3) scale += 0.1;
+    if(density > 5) scale += 0.1;
+    return Math.max(1.05, Math.min(2.1, scale));
+  })();
+
   const AGG_W = 140, AGG_H = 64;
-  const AGG_COL_SPAN = 220;   // horizontal gap between columns
-  const AGG_ROW_SPAN = 110;   // vertical gap between nodes in same column
+  const AGG_COL_SPAN = Math.round(220 * aggScale);   // horizontal gap between columns
+  const AGG_ROW_SPAN = Math.round(110 * aggScale);   // vertical gap between nodes in same column
+  const AGG_EDGE_DENSE = aggEdgeCount > 8;
 
   // -- Step 1: build in/out degree maps from aggEdges (before they're drawn) --
   const outEdges = {};   // srcType -> [tgtType, ...]
@@ -1350,15 +1373,14 @@ function renderAggregateGraph(){
     if(!sn || !tn) return;
 
     // Use dominant color for the line; stroke-width scales with total count
-    edgeGrp.append('path')
+    const pathEl = edgeGrp.append('path')
       .datum(ae)
       .attr('id', `agg-path-${ae._aggRelId.replace(/[^a-z0-9]/gi,'_')}`)
       .attr('class','edge-path')
       .attr('d', aggEdgePath(sn, tn))
       .attr('stroke', ae.color)
       .attr('stroke-width', 1.2)
-      .attr('stroke-opacity', 0.55)
-      .attr('stroke-dasharray','6,3')
+      .attr('stroke-opacity', AGG_EDGE_DENSE ? 0.2 : 0.55)
       .attr('marker-end',`url(#arrow-end-${ae.relation_type.replace(/\s/g,'_')})`)
       .on('click', (ev,d) => { ev.stopPropagation(); showAggEdgeDetail(d); })
       .on('mousemove', (ev,d) => {
@@ -1408,6 +1430,10 @@ function renderAggregateGraph(){
         .text(label);
       tagY += TAG_H + TAG_GAP;
     });
+
+    pathEl
+      .on('mouseenter', () => pill.classed('visible', true))
+      .on('mouseleave', () => pill.classed('visible', false));
   });
 
   // ── Helper: refresh all edges connected to a moved agg node ─────────────
@@ -1429,6 +1455,17 @@ function renderAggregateGraph(){
 
   // ── Draw aggregate nodes ─────────────────────────────────────────────────
   const nodeGrp = g.append('g').attr('class','agg-nodes');
+  function setAggFocus(type){
+    if(!AGG_EDGE_DENSE){
+      edgeGrp.selectAll('path.edge-path').classed('dimmed', false).classed('highlighted', false);
+      edgeGrp.selectAll('g.agg-edge-pill').classed('visible', false);
+      return;
+    }
+    edgeGrp.selectAll('path.edge-path').classed('dimmed', d => d.srcType !== type && d.tgtType !== type);
+    edgeGrp.selectAll('path.edge-path').classed('highlighted', d => d.srcType === type || d.tgtType === type);
+    edgeGrp.selectAll('g.agg-edge-pill').classed('visible', d => d.srcType === type || d.tgtType === type);
+  }
+
   aggNodes.forEach(an => {
     const c = an.color;
     const ng = nodeGrp.append('g')
@@ -1494,6 +1531,7 @@ function renderAggregateGraph(){
       ev.stopPropagation();
       openEntityDrawer(d);
     });
+    ng.on('mouseenter', () => setAggFocus(an.entityType));
     ng.on('mousemove', (ev,d) => {
       showRawTooltip(ev,
         `<b style="color:${d.color}">${d.entityType}</b><br>` +
@@ -1502,7 +1540,10 @@ function renderAggregateGraph(){
         `<span style="color:var(--yellow)">告警 ${d.warn}</span>  ` +
         `<span style="color:var(--red)">异常 ${d.err}</span>`);
     });
-    ng.on('mouseleave', hideTooltip);
+    ng.on('mouseleave', () => {
+      hideTooltip();
+      setAggFocus('');
+    });
   });
 
   setTimeout(fitView, 80);
@@ -1558,7 +1599,7 @@ function showAggEdgeDetail(ae){
       const hc = r.health_status==='正常'?'ok':r.health_status==='告警'?'warn':'err';
       html += `<div class="detail-row" style="flex-direction:column;align-items:flex-start;gap:2px;padding:4px 0">
         <span style="font-size:11px;color:var(--text)">${sn?.entity_name||r.source_entity_id} → ${tn?.entity_name||r.target_entity_id}</span>
-        <span class="detail-val ${hc}" style="font-size:10px">${r.health_status}</span>
+        <span class="detail-val ${hc}" style="font-size:10px">${getHealthLabel(r)}</span>
       </div>`;
     });
     if(rv.count>5) html += `<div style="font-size:11px;color:var(--text3);padding:2px 0">… 还有 ${rv.count-5} 条</div>`;
@@ -1706,6 +1747,13 @@ function applyFilters(){
   const rtype = document.getElementById('rtype-filter').value;
   const hstatus = document.getElementById('health-filter').value;
   const search = document.getElementById('search-inp').value.trim().toLowerCase();
+  const resourceFilter = String(skillResourceType || '').trim().toLowerCase();
+  const resourceFilters = resourceFilter
+    .split(/[,\s，/]+/)
+    .map(t => t.trim())
+    .filter(t => t && t !== 'all')
+    .map(t => RESOURCE_ALIAS[t] || t)
+    .filter((t, idx, arr) => t && arr.indexOf(t) === idx);
 
   visNodes = rawData.nodes.filter(n => {
     if(hiddenNodes.has(n.entity_id)) return false;
@@ -1713,13 +1761,27 @@ function applyFilters(){
     if(projs && !projs.includes(n.project_id)) return false;
     if(etype !== 'all' && n.entity_type !== etype) return false;
     if(hstatus !== 'all' && n.health_status !== hstatus) return false;
-    if(search && !n.entity_name.toLowerCase().includes(search)) return false;
+    const nName = String(n.entity_name || '').toLowerCase();
+    const nId = String(n.entity_id || '').toLowerCase();
+    const nRes = String(n.resource_type || '').toLowerCase();
+    if(resourceFilters.length){
+      const matched = resourceFilters.some(item =>
+        nRes.includes(item) || nName.includes(item) || nId.includes(item)
+      );
+      if(!matched) return false;
+    }
+    if(search && !nName.includes(search) && !nId.includes(search) && !nRes.includes(search)) return false;
     return true;
   });
 
   const nodeIdSet = new Set(visNodes.map(n=>n.entity_id));
 
-  visEdges = rawData.relations.filter(r => {
+  const candidateEdges = rawData.relations.filter(r => {
+    if(rtype !== 'all' && rtype !== 'cross' && r.relation_type !== rtype) return false;
+    return true;
+  });
+
+  visEdges = candidateEdges.filter(r => {
     if(!nodeIdSet.has(r.source_entity_id) || !nodeIdSet.has(r.target_entity_id)) return false;
     if(rtype === 'cross'){
       // Only show cross-project edges
@@ -1729,9 +1791,21 @@ function applyFilters(){
       const sp = sNode.project_id||'global', tp = tNode.project_id||'global';
       return sp !== tp && sp !== 'global' && tp !== 'global';
     }
-    if(rtype !== 'all' && r.relation_type !== rtype) return false;
     return true;
   });
+
+  if(skillExpandNeighbors && visNodes.length){
+    const baseIds = new Set(visNodes.map(n => n.entity_id));
+    const neighborIds = new Set(baseIds);
+    candidateEdges.forEach(r => {
+      if(baseIds.has(r.source_entity_id) || baseIds.has(r.target_entity_id)){
+        neighborIds.add(r.source_entity_id);
+        neighborIds.add(r.target_entity_id);
+      }
+    });
+    visNodes = rawData.nodes.filter(n => neighborIds.has(n.entity_id));
+    visEdges = candidateEdges.filter(r => neighborIds.has(r.source_entity_id) && neighborIds.has(r.target_entity_id));
+  }
 
   renderGraph();
   buildSidebar();
@@ -1756,6 +1830,30 @@ function computeHierarchicalPositions(nodes, W, H){
   window._projOffset = {};  // reset drag offsets on fresh layout
 
   const nodeIds = new Set(nodes.map(n => n.entity_id));
+  const nodeCount = nodes.length;
+  const edgeCount = visEdges.length;
+  const layoutScale = (() => {
+    let scale = 1;
+    if(nodeCount <= 40) scale = 2.0;
+    else if(nodeCount <= 70) scale = 1.75;
+    else if(nodeCount <= 110) scale = 1.55;
+    else if(nodeCount <= 160) scale = 1.35;
+    else if(nodeCount <= 240) scale = 1.2;
+    else if(nodeCount <= 360) scale = 1.08;
+    else if(nodeCount >= 700) scale = 0.95;
+    const density = edgeCount / Math.max(1, nodeCount);
+    if(density > 3) scale += 0.08;
+    if(density > 5) scale += 0.08;
+    return Math.max(0.9, Math.min(2.1, scale));
+  })();
+
+  const NODE_V_GAP_E = Math.round(NODE_V_GAP * layoutScale);
+  const BAND_MARGIN_E = Math.round(BAND_MARGIN_V * (layoutScale + 0.1));
+  const BAND_GAP_E = Math.round(BAND_GAP * (layoutScale + 0.15));
+  const minColSpan = NODE_W * (layoutScale >= 1.6 ? 2.25 : layoutScale >= 1.3 ? 2.0 : 1.7);
+  const COL_SPAN_E = Math.round(Math.max(COL_SPAN * layoutScale, minColSpan));
+  const CELL_H_E = NODE_H + NODE_V_GAP_E;
+  const MIN_BAND_H = Math.max(CELL_H_E * 2, NODE_H * 3 + NODE_V_GAP_E * 2);
 
   // ── Step 1: build adjacency from ALL currently visible edges ─────────
   // We use visEdges (before collapse remapping) so real relations drive
@@ -1827,7 +1925,7 @@ function computeHierarchicalPositions(nodes, W, H){
   const maxLayer = Math.max(...nodes.map(n => layer[n.entity_id]), 0);
   const colX = {};   // layer index → x centre
   for(let l = 0; l <= maxLayer; l++){
-    colX[l] = MARGIN_L + l * COL_SPAN;
+    colX[l] = MARGIN_L + l * COL_SPAN_E;
   }
 
   // ── Step 5: band heights ───────────────────────────────────────────────
@@ -1839,16 +1937,16 @@ function computeHierarchicalPositions(nodes, W, H){
       layerCounts[l] = (layerCounts[l]||0) + 1;
     });
     const maxCount = Math.max(...Object.values(layerCounts), 1);
-    return maxCount * CELL_H + BAND_MARGIN_V * 2;
+    return Math.max(maxCount * CELL_H_E + BAND_MARGIN_E * 2, MIN_BAND_H);
   }
 
   const bandTopY = {};
   let curY = CANVAS_TOP;
   projList.forEach(proj => {
     bandTopY[proj] = curY;
-    curY += bandHeight(proj) + BAND_GAP;
+    curY += bandHeight(proj) + BAND_GAP_E;
   });
-  const totalUsedH = curY - BAND_GAP;
+  const totalUsedH = curY - BAND_GAP_E;
 
   // ── Step 6: assign positions ───────────────────────────────────────────
   const positions = {};
@@ -1863,6 +1961,7 @@ function computeHierarchicalPositions(nodes, W, H){
 
   // Project nodes: group by (proj, layer), sort within each cell by
   // LAYER_ORDER type rank for stable ordering, then distribute vertically
+  // with a barycentric pass to reduce crossings.
   projList.forEach(proj => {
     const bTop = bandTopY[proj];
     const bH   = bandHeight(proj);
@@ -1874,12 +1973,63 @@ function computeHierarchicalPositions(nodes, W, H){
       (byLayer[l] = byLayer[l]||[]).push(n);
     });
 
+    const applyBarycentricOrder = (layerMap, maxIter = 4) => {
+      const layers = Object.keys(layerMap).map(Number).sort((a,b)=>a-b);
+      const rankMap = {};
+      layers.forEach(l => {
+        layerMap[l].forEach((n, idx) => { rankMap[n.entity_id] = idx; });
+      });
+      if(layers.length < 2) return rankMap;
+      const outEdges = {};
+      const inEdges = {};
+      edgeSrc.forEach(e => {
+        if(!outEdges[e.source_entity_id]) outEdges[e.source_entity_id] = [];
+        if(!inEdges[e.target_entity_id]) inEdges[e.target_entity_id] = [];
+        outEdges[e.source_entity_id].push(e.target_entity_id);
+        inEdges[e.target_entity_id].push(e.source_entity_id);
+      });
+      for(let iter=0; iter<maxIter; iter++){
+        // forward pass
+        for(let i=1; i<layers.length; i++){
+          const l = layers[i];
+          layerMap[l].sort((a,b) => {
+            const aNeighbors = inEdges[a.entity_id] || [];
+            const bNeighbors = inEdges[b.entity_id] || [];
+            const aScore = aNeighbors.length ? aNeighbors.reduce((s,id)=>s+(rankMap[id]||0),0)/aNeighbors.length : rankMap[a.entity_id];
+            const bScore = bNeighbors.length ? bNeighbors.reduce((s,id)=>s+(rankMap[id]||0),0)/bNeighbors.length : rankMap[b.entity_id];
+            if(aScore !== bScore) return aScore - bScore;
+            return rankMap[a.entity_id] - rankMap[b.entity_id];
+          });
+          layerMap[l].forEach((n, idx)=>{ rankMap[n.entity_id] = idx; });
+        }
+        // backward pass
+        for(let i=layers.length-2; i>=0; i--){
+          const l = layers[i];
+          layerMap[l].sort((a,b) => {
+            const aNeighbors = outEdges[a.entity_id] || [];
+            const bNeighbors = outEdges[b.entity_id] || [];
+            const aScore = aNeighbors.length ? aNeighbors.reduce((s,id)=>s+(rankMap[id]||0),0)/aNeighbors.length : rankMap[a.entity_id];
+            const bScore = bNeighbors.length ? bNeighbors.reduce((s,id)=>s+(rankMap[id]||0),0)/bNeighbors.length : rankMap[b.entity_id];
+            if(aScore !== bScore) return aScore - bScore;
+            return rankMap[a.entity_id] - rankMap[b.entity_id];
+          });
+          layerMap[l].forEach((n, idx)=>{ rankMap[n.entity_id] = idx; });
+        }
+      }
+      return rankMap;
+    };
+
+    const baryRank = applyBarycentricOrder(byLayer);
+
     Object.entries(byLayer).forEach(([lStr, colNodes]) => {
       const l = Number(lStr);
       const x = colX[l];
 
-      // Sort within column by type rank, then by name for stability
+    // Use barycentric order first to reduce crossings, then stabilize with type/name
       colNodes.sort((a, b) => {
+        const ba = baryRank[a.entity_id] ?? 0;
+        const bb = baryRank[b.entity_id] ?? 0;
+        if(ba !== bb) return ba - bb;
         const ra = typeRank[a.entity_type] !== undefined ? typeRank[a.entity_type] : 99;
         const rb = typeRank[b.entity_type] !== undefined ? typeRank[b.entity_type] : 99;
         if(ra !== rb) return ra - rb;
@@ -1887,13 +2037,13 @@ function computeHierarchicalPositions(nodes, W, H){
       });
 
       // Centre the column vertically within the band
-      const colH     = colNodes.length * CELL_H - NODE_V_GAP;
+      const colH     = colNodes.length * CELL_H_E - NODE_V_GAP_E;
       const startY   = bTop + (bH - colH) / 2 + NODE_H / 2;
 
       colNodes.forEach((n, i) => {
         positions[n.entity_id] = {
           x,
-          y: startY + i * CELL_H
+          y: startY + i * CELL_H_E
         };
       });
     });
@@ -2054,6 +2204,22 @@ function renderGraph(){
   // ── Collapse processing ───────────────────────────────────────────────────
   const { dispNodes, dispEdges, collByVirtId } = buildDispView();
   window._dispNodes = dispNodes;   // expose for refreshEdges
+  const totalEdges = dispEdges.length;
+  showEdgeLabelsByDefault = totalEdges <= 120;
+  edgeLabelMode = showEdgeLabelsByDefault ? 'all' : 'hover';
+  enableEdgeFlow = totalEdges <= 80;
+  const denseEdges = totalEdges > 220;
+
+  // Assign lane offsets for parallel edges to reduce overlap
+  const laneMap = {};
+  dispEdges.forEach(e => {
+    const key = `${e.source_entity_id}|${e.target_entity_id}`;
+    (laneMap[key] = laneMap[key] || []).push(e);
+  });
+  Object.values(laneMap).forEach(edges => {
+    const mid = (edges.length - 1) / 2;
+    edges.forEach((e, idx) => { e._lane = idx - mid; });
+  });
 
   // Compute positions using dispNodes (virtual nodes participate in layout)
   const positions = computeHierarchicalPositions(dispNodes, W, H);
@@ -2181,42 +2347,48 @@ function renderGraph(){
 
     // Exit right edge of src, enter left edge of tgt
     const sx = src._x + snw/2;
-    const sy = src._y;
+    const laneOffset = (edge._lane || 0) * 6;
+    const sy = src._y + laneOffset;
     const tx = tgt._x - tnw/2;
-    const ty = tgt._y;
+    const ty = tgt._y + laneOffset;
 
     let pathD;
     // Uniform S-curve for all edges (cross-project same as normal)
     const spanX = tx - sx;
     const c1x = sx + Math.max(40, spanX * 0.45);
-    const c1y = sy;
+    const c1y = sy + laneOffset * 0.45;
     const c2x = tx - Math.max(40, spanX * 0.45);
-    const c2y = ty;
+    const c2y = ty + laneOffset * 0.45;
     pathD = `M${sx},${sy} C${c1x},${c1y} ${c2x},${c2y} ${tx},${ty}`;
 
     const pathEl = edgeGroup.append('path')
       .datum(edge)
-      .attr('class', 'edge-path')
+      .attr('class', `edge-path${isCross ? ' edge-cross' : ''}${denseEdges ? ' edge-thin' : ''}${enableEdgeFlow ? ' edge-flow' : ''}`)
       .attr('id', `edge-${edge.relation_id}`)
       .attr('d', pathD)
       .attr('stroke', color)
-      .attr('stroke-width', 1.5)
-      .attr('stroke-opacity', 0.55)
-      .attr('stroke-dasharray', isDashed ? '5,3' : '6,3')  // dash always set for flow animation
+      .attr('stroke-width', denseEdges ? 1.1 : 1.5)
+      .attr('stroke-opacity', denseEdges ? (isCross ? 0.2 : 0.28) : (isCross ? 0.35 : 0.55))
       .attr('marker-end', `url(#arrow-${markerId})`);
+    const dashArray = enableEdgeFlow ? (isDashed ? '5,3' : '6,3') : (isDashed ? '5,3' : '');
+    if(dashArray){
+      pathEl.attr('stroke-dasharray', dashArray);
+    }
 
     // Label
     const lx = (sx + tx) / 2;
     const ly = (sy + ty) / 2 - 7;
     const labelG = edgeGroup.append('g').attr('pointer-events','none');
-    labelG.append('text')
+    const labelId = `edge-label-${edge.relation_id}`;
+    const labelEl = labelG.append('text')
       .datum(edge)
       .attr('x', lx).attr('y', ly)
+      .attr('id', labelId)
       .attr('text-anchor','middle')
       .attr('font-size', 9)
       .attr('font-family','Noto Sans SC, sans-serif')
       .attr('fill', color)
-      .attr('opacity', 0.65)
+      .attr('class', `edge-label${showEdgeLabelsByDefault ? ' edge-label-active' : ''}`)
       .text(edge.relation_type);
 
     pathEl.on('click', (ev,d) => {
@@ -2224,8 +2396,18 @@ function renderGraph(){
       hideCtxMenu();
       showEdgeDetail(d);
     });
+    pathEl.on('mouseenter', () => {
+      if(edgeLabelMode === 'hover'){
+        labelEl.classed('edge-label-active', true);
+      }
+    });
     pathEl.on('mousemove', (ev,d) => showTooltip(ev, d, 'edge'));
-    pathEl.on('mouseleave', hideTooltip);
+    pathEl.on('mouseleave', () => {
+      if(edgeLabelMode === 'hover'){
+        labelEl.classed('edge-label-active', showEdgeLabelsByDefault);
+      }
+      hideTooltip();
+    });
   }
 
   // Draw normal edges, then cross-project edges on top
@@ -2525,28 +2707,27 @@ function refreshEdges(movedNode){
     if(src.entity_id !== movedNode.entity_id && tgt.entity_id !== movedNode.entity_id) return;
     const snw = src._isColl ? (NODE_W+14) : src.entity_id==='U-ROOT'?100:NODE_W;
     const tnw = tgt._isColl ? (NODE_W+14) : tgt.entity_id==='U-ROOT'?100:NODE_W;
-    const sx = src._x + snw/2, sy = src._y;
-    const tx = tgt._x - tnw/2, ty = tgt._y;
+    const laneOffset = (d._lane || 0) * 6;
+    const sx = src._x + snw/2, sy = src._y + laneOffset;
+    const tx = tgt._x - tnw/2, ty = tgt._y + laneOffset;
     // Uniform S-curve for all edges
     const spanX = tx - sx;
-    const c1x = sx + Math.max(40, spanX*0.45), c1y = sy;
-    const c2x = tx - Math.max(40, spanX*0.45), c2y = ty;
+    const c1x = sx + Math.max(40, spanX*0.45), c1y = sy + laneOffset * 0.45;
+    const c2x = tx - Math.max(40, spanX*0.45), c2y = ty + laneOffset * 0.45;
     d3.select(this).attr('d', `M${sx},${sy} C${c1x},${c1y} ${c2x},${c2y} ${tx},${ty}`);
   });
   // Re-position edge labels
-  g.selectAll('.edges text').each(function(d){
+  g.selectAll('.edges text.edge-label, .cross-edges text.edge-label').each(function(d){
     const src = activeNodes.find(n=>n.entity_id===d.source_entity_id);
     const tgt = activeNodes.find(n=>n.entity_id===d.target_entity_id);
     if(!src||!tgt) return;
     if(src.entity_id !== movedNode.entity_id && tgt.entity_id !== movedNode.entity_id) return;
     const snw = src._isColl ? (NODE_W+14) : src.entity_id==='U-ROOT'?100:NODE_W;
     const tnw = tgt._isColl ? (NODE_W+14) : tgt.entity_id==='U-ROOT'?100:NODE_W;
-    const sx = src._x + snw/2, sy = src._y;
-    const tx = tgt._x - tnw/2, ty = tgt._y;
+    const laneOffset = (d._lane || 0) * 6;
+    const sx = src._x + snw/2, sy = src._y + laneOffset;
+    const tx = tgt._x - tnw/2, ty = tgt._y + laneOffset;
     const spanX = tx - sx;
-    const c1x = sx + Math.max(40,spanX*0.45), c2x = tx - Math.max(40,spanX*0.45);
-    const lx = 0.125*sx+0.375*c1x+0.375*c2x+0.125*tx;
-    const ly = 0.125*sy+0.375*c1x*0+0.375*c2x*0+0.125*ty - 7;
     // simpler midpoint
     const mx = (sx+tx)/2, my = (sy+ty)/2 - 7;
     d3.select(this).attr('x',mx).attr('y',my);
@@ -2757,7 +2938,7 @@ function showNodeDetail(node){
 
   const FIELD_LABELS = {
     entity_id:'实体ID', entity_name:'实体名称', entity_type:'实体类型',
-    project_id:'项目ID', health_status:'健康状态', created_at:'创建时间',
+    project_id:'项目ID', health_status:'健康状态', resource_type:'资源类型', created_at:'创建时间',
     updated_at:'更新时间', description:'描述', host:'主机地址', port:'端口',
     protocol:'协议', tls_version:'TLS版本', method:'HTTP方法', path:'接口路径',
     version:'版本', auth:'认证方式', replicas:'副本数', image:'镜像',
@@ -2775,10 +2956,10 @@ function showNodeDetail(node){
   baseFields.forEach(k => {
     const v = node[k];
     if(v===undefined) return;
-    const hClass = k==='health_status' ? (v==='正常'?'ok':v==='告警'?'warn':'err') : '';
+    const hClass = k==='health_status' ? getHealthClassByStatus(node.health_status) : '';
     html += `<div class="detail-row">
       <span class="detail-key">${FIELD_LABELS[k]||k}</span>
-      <span class="detail-val ${hClass}">${v}</span>
+      <span class="detail-val ${hClass}">${k==='health_status' ? getHealthLabel(node) : v}</span>
     </div>`;
   });
   html += '</div>';
@@ -2839,10 +3020,10 @@ function showEdgeDetail(edge){
     if(v===undefined) return;
     if(k==='source_entity_id' && srcNode) v = `${srcNode.entity_name} (${v})`;
     if(k==='target_entity_id' && tgtNode) v = `${tgtNode.entity_name} (${v})`;
-    const hClass = k==='health_status' ? (v.startsWith('正常')?'ok':v.startsWith('告警')?'warn':'err') : '';
+    const hClass = k==='health_status' ? getHealthClassByStatus(edge.health_status) : '';
     html += `<div class="detail-row">
       <span class="detail-key">${FIELD_LABELS[k]||k}</span>
-      <span class="detail-val ${hClass}">${v}</span>
+      <span class="detail-val ${hClass}">${k==='health_status' ? getHealthLabel(edge) : v}</span>
     </div>`;
   });
   html += '</div>';
@@ -2880,7 +3061,7 @@ function showTooltip(ev, d, type){
     html = `<div class="tt-name" style="color:${color}">${d.entity_name}</div>
       <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${d.entity_type}</span></div>
       <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${d.project_id||'-'}</span></div>
-      <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${d.health_status}</span></div>
+      <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>
       <div class="tt-row"><span class="tt-key">ID</span><span class="tt-val">${d.entity_id}</span></div>`;
   } else {
     const color = RTYPE_MAP[d.relation_type]||'#64748b';
@@ -2895,7 +3076,7 @@ function showTooltip(ev, d, type){
     html = `<div class="tt-name" style="color:${color}">${d.relation_type}${ttCross ? ' <span style=\"font-size:9px;color:var(--text3)\">[跨项目]</span>' : ''}</div>
       <div class="tt-row"><span class="tt-key">源端</span><span class="tt-val">${srcName}</span></div>
       <div class="tt-row"><span class="tt-key">目标</span><span class="tt-val">${tgtName}</span></div>
-      <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${d.health_status}</span></div>`;
+      <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>`;
   }
   tt.innerHTML = html;
   tt.classList.add('visible');
@@ -3721,7 +3902,7 @@ function _renderDeployDiagram(){
       const tt=document.getElementById('tooltip');
       tt.innerHTML=`<div class="tt-name" style="color:${ld.color}">${d.entity_name}</div>
         <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${d.entity_type}</span></div>
-        <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${d.health_status}</span></div>
+        <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>
         ${fields.map(f=>`<div class="tt-row"><span class="tt-val">${f}</span></div>`).join('')}`;
       tt.classList.add('visible'); moveTooltip(ev);
     }).on('mouseleave',hideTooltip);
@@ -4041,7 +4222,7 @@ function _renderDataFlowDiagram(){
       tt.innerHTML=`<div class="tt-name" style="color:${td.color}">${d.entity_name}</div>
         <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${d.entity_type}</span></div>
         <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${pcfg?pcfg.name:d.project_id||'—'}</span></div>
-        <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${d.health_status}</span></div>
+        <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>
         <div class="tt-row"><span class="tt-key">上游</span><span class="tt-val">${inRels.length} 条</span></div>
         <div class="tt-row"><span class="tt-key">下游</span><span class="tt-val">${outRels.length} 条</span></div>`;
       tt.classList.add('visible'); moveTooltip(ev);
@@ -4144,7 +4325,45 @@ const HEALTH_ALIAS = {
   '异常': '异常'
 };
 
+const RESOURCE_ALIAS = {
+  all: 'all',
+  kafka: 'kafka',
+  docker: 'docker',
+  docekr: 'docker',
+  redis: 'redis',
+  elasticsearch: 'elasticsearch',
+  es: 'elasticsearch',
+  mysql: 'mysql',
+  postgres: 'postgres',
+  postgresql: 'postgres',
+  oracle: 'oracle',
+  rabbitmq: 'rabbitmq',
+  rocketmq: 'rocketmq',
+  '容器': 'docker'
+};
+
 let skillPromptText = String((SKILL_STATE && SKILL_STATE.prompt) || '');
+let skillResourceType = '';
+let skillExpandNeighbors = false;
+
+function getHealthLabel(item){
+  if(item && typeof item === 'object'){
+    const explicit = item.health_text !== undefined && item.health_text !== null ? String(item.health_text).trim() : '';
+    if(explicit) return explicit;
+    const fallback = item.health_status !== undefined && item.health_status !== null ? String(item.health_status).trim() : '';
+    return fallback || '-';
+  }
+  const text = String(item || '').trim();
+  return text || '-';
+}
+
+function getHealthClassByStatus(value){
+  const text = String(value || '').trim();
+  if(text === '正常') return 'ok';
+  if(text === '告警') return 'warn';
+  if(text === '异常') return 'err';
+  return '';
+}
 
 function hasMeaningfulBootstrap(filters, prompt){
   return (
@@ -4152,6 +4371,8 @@ function hasMeaningfulBootstrap(filters, prompt){
     filters.entityType !== 'all' ||
     filters.relationType !== 'all' ||
     filters.health !== 'all' ||
+    (filters.resourceType && filters.resourceType !== 'all') ||
+    Boolean(filters.expandNeighbors) ||
     Boolean(filters.keyword) ||
     Boolean(prompt)
   );
@@ -4443,6 +4664,27 @@ function normalizeSkillFilterPatch(patch){
     next.keyword = String(input.keyword).trim().slice(0, 80);
   }
 
+  if(input.resourceType !== undefined && input.resourceType !== null){
+    const raw = String(input.resourceType).trim().toLowerCase();
+    if(!raw || raw === 'all' || raw === '全部') next.resourceType = 'all';
+    else {
+      const tokens = raw.split(/[,\s，/]+/).map(t => t.trim()).filter(Boolean);
+      const mapped = [];
+      tokens.forEach(token => {
+        const resolved = RESOURCE_ALIAS[token] || token;
+        if(resolved && resolved !== 'all' && !mapped.includes(resolved)){
+          mapped.push(resolved);
+        }
+      });
+      next.resourceType = mapped.length ? mapped.join(',') : 'all';
+    }
+  }
+
+  if(input.expandNeighbors !== undefined && input.expandNeighbors !== null){
+    const raw = String(input.expandNeighbors).trim().toLowerCase();
+    next.expandNeighbors = raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on';
+  }
+
   return next;
 }
 
@@ -4509,6 +4751,36 @@ function inferSkillFiltersFromPrompt(promptText){
   else if(/告警|warn|warning/.test(low)) inferred.health = '告警';
   else if(/正常|healthy|\bok\b/.test(low)) inferred.health = '正常';
 
+  const resourceHints = [
+    ['kafka', ['kafka', 'kafak']],
+    ['docker', ['docker', 'docekr', '容器']],
+    ['redis', ['redis']],
+    ['elasticsearch', ['elasticsearch', 'es']],
+    ['mysql', ['mysql']],
+    ['postgres', ['postgres', 'postgresql']],
+    ['oracle', ['oracle']],
+    ['rabbitmq', ['rabbitmq']],
+    ['rocketmq', ['rocketmq']]
+  ];
+  const matchedResources = [];
+  for(const [key, hints] of resourceHints){
+    if(hints.some(h => low.includes(h))){
+      matchedResources.push(key);
+    }
+  }
+  if(matchedResources.length){
+    const deduped = [];
+    matchedResources.forEach(item => {
+      if(!deduped.includes(item)) deduped.push(item);
+    });
+    inferred.resourceType = deduped.join(',');
+    if(!inferred.keyword) inferred.keyword = deduped[0];
+  }
+
+  if(/上下游|上游|下游|依赖|链路|调用链|upstream|downstream/.test(low)){
+    inferred.expandNeighbors = true;
+  }
+
   const explicitKeyword = text.match(/(?:关键词|关键字|搜索|查找)\s*[:：]?\s*([^\n,，;；]+)/i);
   if(explicitKeyword && explicitKeyword[1]){
     inferred.keyword = explicitKeyword[1].trim().slice(0, 80);
@@ -4529,7 +4801,9 @@ function getCurrentUiFilters(){
     entityType: document.getElementById('etype-filter').value || 'all',
     relationType: document.getElementById('rtype-filter').value || 'all',
     health: document.getElementById('health-filter').value || 'all',
-    keyword: document.getElementById('search-inp').value.trim()
+    keyword: document.getElementById('search-inp').value.trim(),
+    resourceType: skillResourceType || 'all',
+    expandNeighbors: Boolean(skillExpandNeighbors)
   };
 }
 
@@ -4556,7 +4830,10 @@ function setUiFilters(filters){
 
 function getSkillSummary(){
   const f = getCurrentUiFilters();
-  return `项目:${f.project} 实体:${f.entityType} 关系:${f.relationType} 健康:${f.health} 关键词:${f.keyword || '(none)'}`;
+  const extra = [];
+  if(f.resourceType && f.resourceType !== 'all') extra.push(`资源:${f.resourceType}`);
+  if(f.expandNeighbors) extra.push('上下游:1跳');
+  return `项目:${f.project} 实体:${f.entityType} 关系:${f.relationType} 健康:${f.health} 关键词:${f.keyword || '(none)'}${extra.length ? ' ' + extra.join(' ') : ''}`;
 }
 
 function applySkillRun(filtersPatch, promptText){
@@ -4564,6 +4841,12 @@ function applySkillRun(filtersPatch, promptText){
   const merged = { ...getCurrentUiFilters(), ...normalized };
   if(typeof promptText === 'string'){
     skillPromptText = promptText;
+  }
+  if(normalized.resourceType !== undefined){
+    skillResourceType = normalized.resourceType === 'all' ? '' : normalized.resourceType;
+  }
+  if(normalized.expandNeighbors !== undefined){
+    skillExpandNeighbors = Boolean(normalized.expandNeighbors);
   }
   setUiFilters(merged);
   applyFilters();

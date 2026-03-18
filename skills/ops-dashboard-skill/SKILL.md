@@ -41,6 +41,7 @@ The runner behavior is fixed:
 - if a live session already exists, it calls `scripts/dashboard_session.py update`
 - if `--api-url` is present, backend fetch failure is fatal by default
 - if `--api-url` is absent, mock data is allowed
+- if `assets/dashboard.template.html` changed since the last live run, the next update automatically rebuilds `dashboard.html` once
 
 ### Step 2: Choose data source
 
@@ -109,6 +110,7 @@ python3 scripts/dashboard_session.py update \
 Live mode behavior:
 - `start` renders HTML once, starts a local static server, and can open the page automatically
 - `update` only rewrites session JSON files; it does not regenerate the HTML file
+- exception: if the bundled template changed or the session HTML is missing, `update` automatically rebuilds the HTML once
 - `update` refreshes backend/mock data by default, then reapplies natural-language filters
 - pass `--no-refresh-data` if you only want to reuse the cached dataset and update filters/UI
 
@@ -143,9 +145,11 @@ Supported intent extraction in `scripts/build_dashboard.py`:
 - Project: `P001`, `P002`, `全部项目`, `跨项目`
 - Application/project identifiers: `appId=xxx`, `app_id=xxx`, `app_user=xxx`, `应用 xxx`, `项目 xxx`
 - Entity type: `API`, `服务`, `数据库`, `中间件`, `计算`, `告警`, `用户`, `域名`
+- Resource type: `kafka`, `docker`, `redis`, `elasticsearch`, `mysql`, `postgres`, `oracle`, `rabbitmq`, `rocketmq` (支持同时识别多个并输出逗号列表；可容错常见拼写如 `docekr` → `docker`)
 - Relation type: `访问`, `调用`, `包含`, `同一`, `负载`, `承载`, `监控`
 - Health: `正常`, `告警`, `异常`
 - Keyword: `关键词: xxx` or quoted string
+- Upstream/downstream: `上下游`, `上游`, `下游`, `依赖`, `链路`, `调用链` (adds 1-hop neighbors of matched nodes)
 
 If no condition is recognized, keep defaults (`all`) and still render dashboard.
 
@@ -175,6 +179,7 @@ If no condition is recognized, keep defaults (`all`) and still render dashboard.
 - updated session JSON files
 - the same HTML path as the original session
 - `refreshedData: true|false` so the caller knows whether backend data was reloaded
+- `rebuiltHtml: true|false` so the caller knows whether template changes caused an HTML rebuild
 
 ## Runtime control protocol (for any host agent)
 

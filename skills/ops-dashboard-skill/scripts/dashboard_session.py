@@ -7,6 +7,7 @@ Start a local dashboard once, then update filters/data without regenerating HTML
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import socket
@@ -99,6 +100,18 @@ def write_text_atomic(path: Path, content: str) -> None:
 
 def write_json_file(path: Path, payload: Dict[str, Any]) -> None:
     write_text_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fp:
+        for chunk in iter(lambda: fp.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def current_template_signature() -> str:
+    return file_sha256(builder.DEFAULT_TEMPLATE)
 
 
 def now_iso() -> str:
@@ -347,6 +360,20 @@ def render_session_html(
     return str(html_path.resolve())
 
 
+def should_rebuild_html(config: Dict[str, Any], session_dir: Path) -> tuple[bool, str]:
+    html_path = Path(str(config.get("html_path", session_dir / SESSION_HTML_NAME))).expanduser().resolve()
+    if not html_path.exists():
+        return True, "missing_html"
+
+    saved_signature = str(config.get("template_signature", "")).strip()
+    current_signature = current_template_signature()
+    if not saved_signature:
+        return True, "missing_template_signature"
+    if saved_signature != current_signature:
+        return True, "template_changed"
+    return False, ""
+
+
 def command_start(args: argparse.Namespace) -> int:
     session_dir = Path(args.session_dir).expanduser().resolve()
     session_dir.mkdir(parents=True, exist_ok=True)
@@ -411,6 +438,8 @@ def command_start(args: argparse.Namespace) -> int:
         "server_pid": server_pid,
         "url": url,
         "html_path": html_path,
+        "template_path": str(builder.DEFAULT_TEMPLATE.resolve()),
+        "template_signature": current_template_signature(),
         "version": control_version,
         "data_version": data_version,
         "last_prompt": args.prompt,
@@ -510,6 +539,21 @@ def command_update(args: argparse.Namespace) -> int:
         poll_ms=int(config.get("poll_ms", 1500)),
         refreshed_data=bool(args.refresh_data),
     )
+    rebuilt_html, rebuild_reason = should_rebuild_html(config, session_dir)
+    if rebuilt_html:
+        html_path = render_session_html(
+            session_dir=session_dir,
+            config=config,
+            payload=payload,
+            prompt=prompt,
+            version=next_version,
+            data_version=next_data_version,
+            poll_ms=int(config.get("poll_ms", 1500)),
+        )
+        config["html_path"] = html_path
+        config["template_path"] = str(builder.DEFAULT_TEMPLATE.resolve())
+        config["template_signature"] = current_template_signature()
+
     config["version"] = next_version
     config["data_version"] = next_data_version
     config["last_prompt"] = prompt
@@ -530,6 +574,8 @@ def command_update(args: argparse.Namespace) -> int:
                 "version": next_version,
                 "dataVersion": next_data_version,
                 "refreshedData": bool(args.refresh_data),
+                "rebuiltHtml": rebuilt_html,
+                "rebuildReason": rebuild_reason,
             },
             ensure_ascii=False,
         )
