@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a portable HTML dashboard from backend data and a natural-language prompt."""
+"""Build a portable HTML dashboard from MCP JSON and a natural-language prompt."""
 
 from __future__ import annotations
 
@@ -13,15 +13,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
-from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-from urllib.request import Request, urlopen
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
 DEFAULT_TEMPLATE = SKILL_DIR / "assets" / "dashboard.template.html"
-DEFAULT_MOCK_FILE = SKILL_DIR / "assets" / "mock_data.json"
+DEFAULT_INPUT_JSON = SKILL_DIR / "runtime" / "mcp-input.json"
 HEALTH_ALIAS_TO_KEY = {
     "正常": "ok",
     "ok": "ok",
@@ -205,75 +202,23 @@ class BuildContext:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build dashboard from backend data + natural language")
-    parser.add_argument("--api-url", default="", help="Backend endpoint returning graph JSON")
+    parser = argparse.ArgumentParser(description="Build dashboard from MCP JSON + natural language")
     parser.add_argument(
         "--input-json",
-        default="",
-        help="Local JSON payload path (for MCP or external collectors); takes precedence over api/mock",
-    )
-    parser.add_argument("--app-id", default="", help="Optional appId query parameter passed to backend API")
-    parser.add_argument(
-        "--app-alias-file",
-        default="",
-        help="Optional JSON file mapping spoken app names to appId/app_user values",
+        default=str(DEFAULT_INPUT_JSON),
+        help="Local JSON payload path written by the agent after calling the MCP tool",
     )
     parser.add_argument("--prompt", default="", help="Natural-language request used to infer filters")
     parser.add_argument("--output", default="./out/dashboard.html", help="Output HTML file path")
     parser.add_argument("--open-output", action="store_true", help="Open the generated HTML with the local default app")
     parser.add_argument("--template", default=str(DEFAULT_TEMPLATE), help="HTML template file path")
-    parser.add_argument("--mock-file", default=str(DEFAULT_MOCK_FILE), help="Mock data JSON path")
     parser.add_argument("--title", default="Ops Dashboard Skill Demo", help="Dashboard title")
-    parser.add_argument("--timeout", type=float, default=6.0, help="HTTP timeout seconds")
-    parser.add_argument(
-        "--strict-backend",
-        action="store_true",
-        help="Fail immediately when backend fetch fails (no mock fallback)",
-    )
     return parser.parse_args()
 
 
 def read_json_file(path: Path) -> Dict:
     with path.open("r", encoding="utf-8") as fp:
         return json.load(fp)
-
-
-def load_app_aliases(path_str: str) -> Dict[str, str]:
-    if not path_str:
-        return {}
-
-    path = Path(path_str).expanduser().resolve()
-    if not path.exists():
-        return {}
-
-    data = read_json_file(path)
-    if not isinstance(data, dict):
-        return {}
-
-    aliases: Dict[str, str] = {}
-    for key, value in data.items():
-        alias = str(key or "").strip()
-        target = str(value or "").strip()
-        if alias and target:
-            aliases[alias] = target
-    return aliases
-
-
-def build_request_url(api_url: str, app_id: str) -> str:
-    if not app_id:
-        return api_url
-
-    parts = urlsplit(api_url)
-    query = dict(parse_qsl(parts.query, keep_blank_values=True))
-    query["appId"] = app_id
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
-
-
-def fetch_backend_json(api_url: str, timeout: float, app_id: str = "") -> Dict:
-    req = Request(build_request_url(api_url, app_id), headers={"Accept": "application/json"})
-    with urlopen(req, timeout=timeout) as resp:
-        body = resp.read().decode("utf-8")
-    return json.loads(body)
 
 
 def normalize_health_display(value: str) -> str:
@@ -376,16 +321,27 @@ def normalize_link(raw: Dict) -> Dict | None:
 
 
 def iter_data_entries(payload: Dict) -> List[Dict]:
-    data = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else payload
+    if not isinstance(payload, dict):
+        raise RuntimeError("MCP payload must be a JSON object")
+
+    data = payload.get("data")
     if not isinstance(data, dict):
-        return []
+        raise RuntimeError("MCP payload must contain a 'data' object")
 
     datas = data.get("datas")
-    if isinstance(datas, list):
-        return [item for item in datas if isinstance(item, dict)]
-    if isinstance(datas, dict):
-        return [datas]
-    return [data]
+    if not isinstance(datas, list) or not datas:
+        raise RuntimeError("MCP payload must contain a non-empty 'data.datas' array")
+
+    entries: List[Dict] = []
+    for index, item in enumerate(datas):
+        if not isinstance(item, dict):
+            raise RuntimeError(f"MCP payload data.datas[{index}] must be an object")
+        if not isinstance(item.get("nodes"), list):
+            raise RuntimeError(f"MCP payload data.datas[{index}].nodes must be an array")
+        if not isinstance(item.get("relations"), list):
+            raise RuntimeError(f"MCP payload data.datas[{index}].relations must be an array")
+        entries.append(item)
+    return entries
 
 
 def normalize_payload(payload: Dict, default_project: str = "UNKNOWN") -> Dict[str, List[Dict]]:
@@ -397,11 +353,8 @@ def normalize_payload(payload: Dict, default_project: str = "UNKNOWN") -> Dict[s
         if isinstance(raw_nodes, list):
             nodes_raw.extend(item for item in raw_nodes if isinstance(item, dict))
 
-        raw_links = entry.get("links")
         raw_relations = entry.get("relations")
-        if isinstance(raw_links, list):
-            links_raw.extend(item for item in raw_links if isinstance(item, dict))
-        elif isinstance(raw_relations, list):
+        if isinstance(raw_relations, list):
             links_raw.extend(item for item in raw_relations if isinstance(item, dict))
 
     nodes = [n for n in (normalize_node(item or {}, default_project=default_project) for item in nodes_raw) if n]
@@ -424,85 +377,9 @@ def infer_keyword(prompt: str) -> str:
     return ""
 
 
-def resolve_project_token(token: str, projects: Iterable[str], app_aliases: Dict[str, str] | None = None) -> str:
-    raw = str(token or "").strip()
-    if not raw:
-        return ""
-
-    project_list = [str(project).strip() for project in projects if str(project).strip()]
-    upper = raw.upper()
-    lower = raw.lower()
-    alias_map = {str(key).strip().lower(): str(value).strip() for key, value in (app_aliases or {}).items() if str(key).strip() and str(value).strip()}
-    if lower in alias_map:
-        return alias_map[lower]
-
-    for project in project_list:
-        if project == raw or project.upper() == upper or project.lower() == lower:
-            return project
-
-    for project in sorted(project_list, key=len, reverse=True):
-        project_upper = project.upper()
-        if upper in project_upper or project_upper in upper:
-            return project
-
-    return raw if not project_list else ""
-
-
-def extract_explicit_project_token(
-    prompt: str,
-    projects: Iterable[str],
-    app_aliases: Dict[str, str] | None = None,
-) -> str:
-    text = str(prompt or "").strip()
-    if not text:
-        return ""
-
-    patterns = [
-        r"\bapp[\s_-]*id\b\s*[:=：]?\s*([A-Za-z0-9._\-/]+)",
-        r"\bapp[\s_-]*user\b\s*[:=：]?\s*([A-Za-z0-9._\-/]+)",
-        r"(?:应用|项目)\s*(?:id|名称|编码)?\s*[:=：]?\s*([A-Za-z0-9._\-/]+)",
-        r"([A-Za-z0-9._\-/]+)\s*(?:应用|项目)",
-        r"(?:应用|项目)\s*(?:名|名称)?\s*[:=：]?\s*([A-Za-z0-9._\-/\u4e00-\u9fff]{2,40})",
-        r"([A-Za-z0-9._\-/\u4e00-\u9fff]{2,40})\s*(?:应用|项目)",
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, text, flags=re.I)
-        if match:
-            return resolve_project_token(match.group(1), projects, app_aliases=app_aliases)
-
-    return ""
-
-
-def match_alias_in_prompt(prompt: str, app_aliases: Dict[str, str] | None = None) -> str:
-    text = str(prompt or "").strip().lower()
-    if not text:
-        return ""
-
-    aliases = app_aliases or {}
-    alias_items = sorted(
-        ((str(key).strip(), str(value).strip()) for key, value in aliases.items() if str(key).strip() and str(value).strip()),
-        key=lambda item: len(item[0]),
-        reverse=True,
-    )
-    for alias, target in alias_items:
-        if alias.lower() in text:
-            return target
-    return ""
-
-
-def infer_app_id_from_prompt(prompt: str, app_aliases: Dict[str, str] | None = None) -> str:
-    explicit = extract_explicit_project_token(prompt, [], app_aliases=app_aliases)
-    if explicit:
-        return explicit
-    return match_alias_in_prompt(prompt, app_aliases=app_aliases)
-
-
 def infer_filters_from_prompt(
     prompt: str,
-    projects: Iterable[str],
     relation_types: Iterable[str] | None = None,
-    app_aliases: Dict[str, str] | None = None,
 ) -> Dict[str, str]:
     filters = {
         "project": "all",
@@ -518,47 +395,7 @@ def infer_filters_from_prompt(
         return filters
 
     low = text.lower()
-    compact = re.sub(r"\s+", "", low)
     available_relation_types = {str(item).strip() for item in (relation_types or []) if str(item).strip()}
-
-    if re.search(r"全部项目|所有项目|跨项目|allprojects", compact):
-        filters["project"] = "all"
-    else:
-        explicit_project = extract_explicit_project_token(text, projects, app_aliases=app_aliases)
-        if explicit_project:
-            filters["project"] = explicit_project
-        elif app_aliases:
-            alias_project = resolve_project_token(match_alias_in_prompt(text, app_aliases=app_aliases), projects, app_aliases=app_aliases)
-            if alias_project:
-                filters["project"] = alias_project
-
-        upper_text = text.upper()
-        if filters["project"] == "all":
-            for proj in sorted(set(projects), key=len, reverse=True):
-                if proj and proj.upper() in upper_text:
-                    filters["project"] = proj
-                    break
-        if filters["project"] == "all":
-            if "电商" in text or "p1" in compact:
-                filters["project"] = "P001"
-            elif "金融" in text or "p2" in compact:
-                filters["project"] = "P002"
-
-    entity_hints = [
-        ("api", ["api", "接口"]),
-        ("service", ["服务", "微服务", "svc"]),
-        ("db", ["数据库", "db", "mysql", "postgres", "oracle"]),
-        ("middleware", ["中间件", "redis", "kafka", "mq", "es"]),
-        ("compute", ["计算", "节点", "k8s", "vm"]),
-        ("storage", ["存储", "文件系统", "efs", "esfs", "nfs"]),
-        ("alarm", ["告警", "alarm"]),
-        ("user", ["用户"]),
-        ("domain", ["域名"]),
-    ]
-    for key, hints in entity_hints:
-        if any(h in low for h in hints):
-            filters["entityType"] = key
-            break
 
     relation_hints = [
         ("contains", ["包含", "归属", "contains"]),
@@ -583,28 +420,6 @@ def infer_filters_from_prompt(
         filters["health"] = "warn"
     elif re.search(r"正常|healthy|\bok\b", low):
         filters["health"] = "ok"
-
-    resource_hints = [
-        ("kafka", ["kafka", "kafak"]),
-        ("docker", ["docker", "docekr", "容器"]),
-        ("redis", ["redis"]),
-        ("elasticsearch", ["elasticsearch", "es"]),
-        ("mysql", ["mysql"]),
-        ("postgres", ["postgres", "postgresql"]),
-        ("oracle", ["oracle"]),
-        ("rabbitmq", ["rabbitmq"]),
-        ("rocketmq", ["rocketmq"]),
-    ]
-    matched_resources: list[str] = []
-    for key, hints in resource_hints:
-        if any(h in low for h in hints):
-            matched_resources.append(key)
-    if matched_resources:
-        deduped = []
-        for item in matched_resources:
-            if item not in deduped:
-                deduped.append(item)
-        filters["resourceType"] = ",".join(deduped)
 
     if re.search(r"上下游|上游|下游|依赖|链路|调用链|upstream|downstream", low):
         filters["expandNeighbors"] = "true"
@@ -889,38 +704,26 @@ def open_output_file(path: Path) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def derive_app_id(nodes: List[Dict]) -> str:
+    projects = sorted({str(node.get("project") or "").strip() for node in nodes if str(node.get("project") or "").strip()})
+    if len(projects) == 1:
+        return projects[0]
+    return ""
+
+
 def load_source_data(args: argparse.Namespace) -> Tuple[Dict[str, List[Dict]], BuildContext]:
-    input_json = str(getattr(args, "input_json", "") or "").strip()
-    if input_json:
-        input_path = Path(input_json).expanduser().resolve()
+    input_path = Path(str(getattr(args, "input_json", "") or DEFAULT_INPUT_JSON)).expanduser().resolve()
+    if not input_path.exists():
+        raise RuntimeError(f"MCP input JSON not found: {input_path}")
+
+    try:
         payload = read_json_file(input_path)
-        normalized = normalize_payload(payload, default_project=args.app_id or "UNKNOWN")
-        return normalized, BuildContext(
-            source=f"input:{input_path}",
-            raw_node_count=len(normalized["nodes"]),
-            raw_link_count=len(normalized["links"]),
-        )
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"MCP input JSON is invalid: {exc}") from exc
 
-    if args.api_url:
-        try:
-            payload = fetch_backend_json(args.api_url, timeout=args.timeout, app_id=args.app_id)
-            normalized = normalize_payload(payload, default_project=args.app_id or "UNKNOWN")
-            source_url = build_request_url(args.api_url, args.app_id)
-            return normalized, BuildContext(
-                source=f"backend:{source_url}",
-                raw_node_count=len(normalized["nodes"]),
-                raw_link_count=len(normalized["links"]),
-            )
-        except (URLError, HTTPError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
-            if args.strict_backend:
-                raise RuntimeError(f"backend fetch failed: {exc}") from exc
-            print(f"[WARN] backend fetch failed, fallback to mock: {exc}", file=sys.stderr)
-
-    mock_path = Path(args.mock_file).expanduser().resolve()
-    payload = read_json_file(mock_path)
-    normalized = normalize_payload(payload, default_project=args.app_id or "UNKNOWN")
+    normalized = normalize_payload(payload, default_project="UNKNOWN")
     return normalized, BuildContext(
-        source=f"mock:{mock_path}",
+        source=f"input:{input_path}",
         raw_node_count=len(normalized["nodes"]),
         raw_link_count=len(normalized["links"]),
     )
@@ -928,9 +731,6 @@ def load_source_data(args: argparse.Namespace) -> Tuple[Dict[str, List[Dict]], B
 
 def main() -> int:
     args = parse_args()
-    app_aliases = load_app_aliases(args.app_alias_file)
-    if not args.app_id:
-        args.app_id = infer_app_id_from_prompt(args.prompt, app_aliases=app_aliases)
 
     try:
         normalized, ctx = load_source_data(args)
@@ -938,15 +738,13 @@ def main() -> int:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 2
 
-    projects = sorted({n.get("project", "UNKNOWN") for n in normalized["nodes"] if n.get("project")})
     filters = infer_filters_from_prompt(
         args.prompt,
-        projects,
         relation_types=[link.get("type", "") for link in normalized["links"]],
-        app_aliases=app_aliases,
     )
     filtered_nodes, filtered_links = apply_filters(normalized["nodes"], normalized["links"], filters)
     summary = build_summary(filtered_nodes, filtered_links)
+    app_id = derive_app_id(normalized["nodes"])
 
     graph_data = to_graph_data(normalized["nodes"], normalized["links"])
     app_config = build_app_config(graph_data)
@@ -960,9 +758,8 @@ def main() -> int:
             "source": ctx.source,
             "rawNodeCount": ctx.raw_node_count,
             "rawLinkCount": ctx.raw_link_count,
-            "appId": args.app_id,
+            "appId": app_id,
         },
-        "appAliases": app_aliases,
     }
 
     payload = {
@@ -986,8 +783,7 @@ def main() -> int:
             "source": ctx.source,
             "rawNodeCount": ctx.raw_node_count,
             "rawLinkCount": ctx.raw_link_count,
-            "appId": args.app_id,
-            "appAliasFile": str(Path(args.app_alias_file).expanduser().resolve()) if args.app_alias_file else "",
+            "appId": app_id,
         },
     }
 

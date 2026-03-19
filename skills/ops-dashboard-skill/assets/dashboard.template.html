@@ -4693,43 +4693,7 @@ function inferSkillFiltersFromPrompt(promptText){
   if(!text) return {};
 
   const low = text.toLowerCase();
-  const compact = low.replace(/\s+/g, '');
   const inferred = {};
-
-  if(/全部项目|所有项目|跨项目|allprojects/.test(compact)){
-    inferred.project = 'all';
-  } else {
-    const explicitProject = extractExplicitProjectToken(text);
-    const aliasProject = resolveProjectToken(matchAliasInPrompt(text));
-    const upperText = text.toUpperCase();
-    const matchedProject = PROJS
-      .slice()
-      .sort((a, b) => String(b).length - String(a).length)
-      .find(p => upperText.includes(String(p).toUpperCase()));
-    if(explicitProject) inferred.project = explicitProject;
-    else if(aliasProject) inferred.project = aliasProject;
-    else if(matchedProject) inferred.project = matchedProject;
-    else if(/p001|电商/.test(compact)) inferred.project = 'P001';
-    else if(/p002|支付|金融/.test(compact)) inferred.project = 'P002';
-  }
-
-  const entityHints = [
-    ['API接口', ['api', '接口']],
-    ['应用微服务', ['服务', '微服务', 'svc']],
-    ['数据库', ['数据库', 'db', 'mysql', 'postgres', 'oracle']],
-    ['中间件', ['中间件', 'redis', 'kafka', 'mq', 'es']],
-    ['计算资源', ['计算', '节点', 'k8s', 'vm']],
-    ['存储', ['存储', '文件系统', 'efs', 'esfs', 'nfs']],
-    ['告警', ['告警', 'alarm']],
-    ['用户', ['用户']],
-    ['域名上下文根', ['域名']]
-  ];
-  for(const [label, hints] of entityHints){
-    if(hints.some(h => low.includes(h))){
-      inferred.entityType = label;
-      break;
-    }
-  }
 
   const relationHints = [
     ['包含', ['包含', '归属', 'contains']],
@@ -4750,32 +4714,6 @@ function inferSkillFiltersFromPrompt(promptText){
   if(/异常|故障|error|err/.test(low)) inferred.health = '异常';
   else if(/告警|warn|warning/.test(low)) inferred.health = '告警';
   else if(/正常|healthy|\bok\b/.test(low)) inferred.health = '正常';
-
-  const resourceHints = [
-    ['kafka', ['kafka', 'kafak']],
-    ['docker', ['docker', 'docekr', '容器']],
-    ['redis', ['redis']],
-    ['elasticsearch', ['elasticsearch', 'es']],
-    ['mysql', ['mysql']],
-    ['postgres', ['postgres', 'postgresql']],
-    ['oracle', ['oracle']],
-    ['rabbitmq', ['rabbitmq']],
-    ['rocketmq', ['rocketmq']]
-  ];
-  const matchedResources = [];
-  for(const [key, hints] of resourceHints){
-    if(hints.some(h => low.includes(h))){
-      matchedResources.push(key);
-    }
-  }
-  if(matchedResources.length){
-    const deduped = [];
-    matchedResources.forEach(item => {
-      if(!deduped.includes(item)) deduped.push(item);
-    });
-    inferred.resourceType = deduped.join(',');
-    if(!inferred.keyword) inferred.keyword = deduped[0];
-  }
 
   if(/上下游|上游|下游|依赖|链路|调用链|upstream|downstream/.test(low)){
     inferred.expandNeighbors = true;

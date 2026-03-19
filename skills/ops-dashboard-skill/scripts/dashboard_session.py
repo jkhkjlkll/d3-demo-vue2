@@ -48,49 +48,22 @@ def parse_args() -> argparse.Namespace:
     )
     start.add_argument("--poll-ms", type=int, default=1500, help="How often the page polls session control updates")
 
-    update = subparsers.add_parser("update", help="Update prompt/filters and optionally refresh backend data for an existing session")
+    update = subparsers.add_parser("update", help="Update prompt/filters for an existing session using the latest MCP JSON")
     update.add_argument("--session-dir", default=str(DEFAULT_SESSION_DIR), help="Directory storing live session files")
     update.add_argument("--prompt", default="", help="Natural-language request used to infer new filters")
-    update.add_argument("--app-id", default="", help="Optional appId override for this update")
-    update.add_argument("--api-url", default="", help="Optional API URL override for this update")
     update.add_argument("--input-json", default="", help="Optional local JSON payload override for this update")
-    update.add_argument("--app-alias-file", default="", help="Optional alias file override for this update")
-    update.add_argument("--mock-file", default="", help="Optional mock file override for this update")
-    update.add_argument("--timeout", type=float, default=0.0, help="Optional timeout override for this update")
-    update.add_argument(
-        "--refresh-data",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Refresh backend/mock data before applying the new prompt",
-    )
-    update.add_argument(
-        "--strict-backend",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Optional strict-backend override for this update",
-    )
 
     return parser.parse_args()
 
 
 def add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--api-url", default="", help="Backend endpoint returning graph JSON")
     parser.add_argument(
         "--input-json",
-        default="",
-        help="Local JSON payload path (for MCP/external collectors); takes precedence over api/mock",
+        default=str(builder.DEFAULT_INPUT_JSON),
+        help="Local JSON payload path written by the agent after calling the MCP tool",
     )
-    parser.add_argument("--app-id", default="", help="Optional appId query parameter passed to backend API")
-    parser.add_argument("--app-alias-file", default="", help="Optional JSON file mapping spoken app names to appId/app_user values")
     parser.add_argument("--prompt", default="", help="Natural-language request used to infer filters")
     parser.add_argument("--title", default="Ops Dashboard Live Session", help="Dashboard title")
-    parser.add_argument("--mock-file", default=str(builder.DEFAULT_MOCK_FILE), help="Mock data JSON path")
-    parser.add_argument("--timeout", type=float, default=6.0, help="HTTP timeout seconds")
-    parser.add_argument(
-        "--strict-backend",
-        action="store_true",
-        help="Fail immediately when backend fetch fails (no mock fallback)",
-    )
 
 
 def read_json_file(path: Path) -> Dict[str, Any]:
@@ -181,39 +154,25 @@ def start_server(session_dir: Path, port: int) -> Tuple[int, Path]:
 
 def runtime_args_to_namespace(config: Dict) -> argparse.Namespace:
     return argparse.Namespace(
-        api_url=config.get("api_url", ""),
         input_json=config.get("input_json", ""),
-        app_id=config.get("app_id", ""),
-        timeout=config.get("timeout", 6.0),
-        strict_backend=bool(config.get("strict_backend", False)),
-        mock_file=config.get("mock_file", str(builder.DEFAULT_MOCK_FILE)),
     )
 
 
-def build_payload(config: Dict[str, Any], prompt: str, app_aliases: Dict[str, str]) -> Dict[str, Any]:
-    effective_app_id = str(config.get("app_id", "")).strip()
-    if not effective_app_id:
-        effective_app_id = builder.infer_app_id_from_prompt(prompt, app_aliases=app_aliases)
-
-    runtime_config = dict(config)
-    runtime_config["app_id"] = effective_app_id
-    normalized, ctx = builder.load_source_data(runtime_args_to_namespace(runtime_config))
-
-    projects = sorted({n.get("project", "UNKNOWN") for n in normalized["nodes"] if n.get("project")})
+def build_payload(config: Dict[str, Any], prompt: str) -> Dict[str, Any]:
+    normalized, ctx = builder.load_source_data(runtime_args_to_namespace(config))
     filters = builder.infer_filters_from_prompt(
         prompt,
-        projects,
         relation_types=[link.get("type", "") for link in normalized["links"]],
-        app_aliases=app_aliases,
     )
     filtered_nodes, filtered_links = builder.apply_filters(normalized["nodes"], normalized["links"], filters)
     summary = builder.build_summary(filtered_nodes, filtered_links)
     graph_data = builder.to_graph_data(normalized["nodes"], normalized["links"])
     app_config = builder.build_app_config(graph_data)
     ui_filters = builder.to_ui_filters(filters)
+    app_id = builder.derive_app_id(normalized["nodes"])
 
     return {
-        "appId": effective_app_id,
+        "appId": app_id,
         "filters": filters,
         "uiFilters": ui_filters,
         "summary": summary,
@@ -224,7 +183,7 @@ def build_payload(config: Dict[str, Any], prompt: str, app_aliases: Dict[str, st
             "source": ctx.source,
             "rawNodeCount": ctx.raw_node_count,
             "rawLinkCount": ctx.raw_link_count,
-            "appId": effective_app_id,
+            "appId": app_id,
         },
     }
 
@@ -252,7 +211,6 @@ def build_live_payload_bundle(
         "filters": payload["uiFilters"],
         "summary": payload["summary"],
         "meta": payload["meta"],
-        "appAliases": config.get("app_aliases", {}),
         "liveSession": live_session,
     }
 
@@ -385,21 +343,17 @@ def command_start(args: argparse.Namespace) -> int:
     session_dir = Path(args.session_dir).expanduser().resolve()
     session_dir.mkdir(parents=True, exist_ok=True)
 
-    app_aliases = builder.load_app_aliases(args.app_alias_file)
     config = {
-        "api_url": args.api_url,
-        "input_json": str(Path(args.input_json).expanduser().resolve()) if args.input_json else "",
-        "app_id": args.app_id,
-        "app_alias_file": str(Path(args.app_alias_file).expanduser().resolve()) if args.app_alias_file else "",
-        "app_aliases": app_aliases,
-        "mock_file": str(Path(args.mock_file).expanduser().resolve()),
-        "timeout": args.timeout,
-        "strict_backend": bool(args.strict_backend),
+        "input_json": str(Path(args.input_json or builder.DEFAULT_INPUT_JSON).expanduser().resolve()),
         "title": args.title,
         "poll_ms": args.poll_ms,
     }
 
-    payload = build_payload(config, args.prompt, app_aliases)
+    try:
+        payload = build_payload(config, args.prompt)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 2
     control_version = 1
     data_version = 1
     runtime_written = write_session_runtime_files(
@@ -486,59 +440,24 @@ def command_update(args: argparse.Namespace) -> int:
         return 2
 
     config = read_json_file(config_path)
-    if args.api_url:
-        config["api_url"] = args.api_url
     if args.input_json:
         config["input_json"] = str(Path(args.input_json).expanduser().resolve())
-    if args.app_id:
-        config["app_id"] = args.app_id
-    if args.mock_file:
-        config["mock_file"] = str(Path(args.mock_file).expanduser().resolve())
-    if args.timeout:
-        config["timeout"] = args.timeout
-    if args.strict_backend is not None:
-        config["strict_backend"] = bool(args.strict_backend)
-    if args.app_alias_file:
-        config["app_alias_file"] = str(Path(args.app_alias_file).expanduser().resolve())
-
-    app_aliases = builder.load_app_aliases(config.get("app_alias_file", ""))
-    config["app_aliases"] = app_aliases
 
     prompt = args.prompt or str(config.get("last_prompt", "")).strip()
     if not prompt:
         print("[ERROR] prompt is required for session update", file=sys.stderr)
         return 2
 
-    if args.refresh_data:
-        payload = build_payload(config, prompt, app_aliases)
-    else:
-        existing_meta = read_json_file(session_dir / SESSION_META_NAME)
-        payload = {
-            "appId": config.get("app_id", ""),
-            "filters": existing_meta.get("filters", {}),
-            "uiFilters": existing_meta.get("uiFilters", {}),
-            "summary": existing_meta.get("summary", {}),
-            "graphData": existing_meta.get("graphData", {}),
-            "appConfig": existing_meta.get("appConfig", {}),
-            "normalized": existing_meta.get("dataset", {}),
-            "meta": existing_meta.get("meta", {}),
-        }
-        projects = sorted({n.get("project", "UNKNOWN") for n in payload["normalized"].get("nodes", []) if n.get("project")})
-        filters = builder.infer_filters_from_prompt(
-            prompt,
-            projects,
-            relation_types=[link.get("type", "") for link in payload["normalized"].get("links", [])],
-            app_aliases=app_aliases,
-        )
-        filtered_nodes, filtered_links = builder.apply_filters(payload["normalized"]["nodes"], payload["normalized"]["links"], filters)
-        payload["filters"] = filters
-        payload["uiFilters"] = builder.to_ui_filters(filters)
-        payload["summary"] = builder.build_summary(filtered_nodes, filtered_links)
+    try:
+        payload = build_payload(config, prompt)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 2
 
     current_version = int(config.get("version", 1))
     current_data_version = int(config.get("data_version", current_version))
     next_version = current_version + 1
-    next_data_version = current_data_version + 1 if args.refresh_data else current_data_version
+    next_data_version = current_data_version + 1
     written = write_session_runtime_files(
         session_dir=session_dir,
         config=config,
@@ -547,7 +466,7 @@ def command_update(args: argparse.Namespace) -> int:
         version=next_version,
         data_version=next_data_version,
         poll_ms=int(config.get("poll_ms", 1500)),
-        refreshed_data=bool(args.refresh_data),
+        refreshed_data=True,
     )
     rebuilt_html, rebuild_reason = should_rebuild_html(config, session_dir)
     if rebuilt_html:
@@ -568,8 +487,6 @@ def command_update(args: argparse.Namespace) -> int:
     config["data_version"] = next_data_version
     config["last_prompt"] = prompt
     config["lastUpdatedAt"] = now_iso()
-    if payload.get("appId"):
-        config["app_id"] = payload["appId"]
     write_json_file(config_path, config)
 
     print(
@@ -583,7 +500,7 @@ def command_update(args: argparse.Namespace) -> int:
                 "url": config.get("url", ""),
                 "version": next_version,
                 "dataVersion": next_data_version,
-                "refreshedData": bool(args.refresh_data),
+                "refreshedData": True,
                 "rebuiltHtml": rebuilt_html,
                 "rebuildReason": rebuild_reason,
             },

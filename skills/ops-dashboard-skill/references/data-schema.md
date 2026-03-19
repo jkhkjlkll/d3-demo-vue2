@@ -1,31 +1,41 @@
-# Data Schema Reference
+# MCP Data Schema Reference
 
-Use this schema when normalizing backend payload for the dashboard renderer.
+Use this schema when the agent has already called the internal MCP tool and written the result to the skill's local JSON file.
 
-## Accepted payload shapes
+## Fixed input path
 
-### Shape A
+Default relative path:
+
+```text
+./runtime/mcp-input.json
+```
+
+Repository absolute path:
+
+```text
+/Users/xiao/code/d3-demo-vue2/skills/ops-dashboard-skill/runtime/mcp-input.json
+```
+
+## MCP contract placeholders
+
+Because the real intranet names cannot be stored here, use placeholders in the skill contract:
 
 ```json
 {
-  "status": "ok",
-  "data": {
-    "nodes": [],
-    "links": []
+  "server": "__MCP_SERVER_NAME__",
+  "tool": "__MCP_TOOL_NAME__",
+  "arguments": {
+    "appId": "<appId>",
+    "resourceType": "<resourceType>"
   }
 }
 ```
 
-### Shape B
+If the host agent exposes a single MCP entrypoint rather than separate server/tool names, treat `__MCP_TOOL_NAME__` as that single entrypoint name.
 
-```json
-{
-  "nodes": [],
-  "links": []
-}
-```
+## Accepted payload shape
 
-### Shape C
+The renderer now accepts only the MCP payload shape below.
 
 ```json
 {
@@ -42,120 +52,86 @@ Use this schema when normalizing backend payload for the dashboard renderer.
 }
 ```
 
-## Node schema
+Validation rules:
+- top-level payload must be a JSON object
+- `data` must be a JSON object
+- `data.datas` must be a non-empty array
+- every `data.datas[i]` must be an object
+- every `data.datas[i].nodes` must be an array
+- every `data.datas[i].relations` must be an array
+- invalid JSON or invalid shape is a fatal error; no fallback path exists
 
-Required fields:
-- `id` (string)
-- `label` (string)
-- `type` (string)
-- `health` (string: `正常|告警|异常` or `ok|warn|err`)
-- `project` (string)
+## Node mapping
 
-Optional fields:
-- any additional business fields are preserved in metadata but not required for rendering
-
-## Link schema
-
-Required fields:
-- `source` (string)
-- `target` (string)
-- `type` (string)
-
-## Normalization rules
-
-1. Convert health aliases to Chinese display values:
-- `ok` -> `正常`
-- `warn` -> `告警`
-- `err` or `error` -> `异常`
-
-2. Drop malformed nodes or links missing required IDs.
-
-3. Keep only links whose `source` and `target` both exist in node IDs after filtering.
-
-## Internal graph adapter notes
-
-This skill can also normalize a backend shape like:
-
-```json
-{
-  "status": "ok|error",
-  "data": {
-    "datas": [
-      {
-        "nodes": [],
-        "relations": [],
-        "result": []
-      }
-    ]
-  }
-}
-```
-
-Field mapping used by the adapter:
+Input fields used by the renderer:
 - Node ID: `nodes[].id`
 - Node label: `nodes[].name`
 - Node type: `nodes[].resource_type`
 - Node health: `nodes[].lifecycle_state`
-- Project/app dimension: normalized `project` prefers `nodes[].app_user`; request-side `appId` is only used as query param and fallback
+- Project/app dimension: `nodes[].app_user`
+
+Optional fields that may exist and are tolerated:
+- `resource_id`
+- `resource_type`
+- `hrn`
+- `lifecycle_state`
+- `source`
+- `region_code`
+- `az_code`
+- `rack_code`
+- `room_code`
+- `env`
+- `app_user`
+- `labels`
+- other business metadata
+
+## Relation mapping
+
+Input fields used by the renderer:
 - Relation source: `relations[].startNodeId`
 - Relation target: `relations[].endNodeId`
 - Relation type: `relations[].relation_type`
-
-Lifecycle state rendering:
-- preserve the original `nodes[].lifecycle_state` text for UI display
-- example: `Active` stays `Active`, `Recycle` stays `Recycle`
-- internal dashboard health coloring/filtering may still use normalized categories, but displayed text should stay the original lifecycle state value
 
 Known relation aliases:
 - `contains` -> `包含`
 - `calls` -> `调用`
 - `same_as` -> `同一资源`
 
-`result[]` is ignored unless a future adapter explicitly consumes it.
+`result[]` is currently ignored.
 
-Natural-language project parsing also recognizes these explicit forms:
-- `appId=xxx`
-- `app_id=xxx`
-- `app_user=xxx`
-- `应用 xxx`
-- `项目 xxx`
+## Lifecycle state display
 
-If users speak a Chinese app name that does not appear directly in `nodes[].app_user`,
-pass an alias file such as:
+The UI preserves the original lifecycle text for display.
 
-```json
-{
-  "支付系统": "app-pay-001",
-  "风控平台": "app-risk-001"
-}
-```
+Examples:
+- `Active` is displayed as `Active`
+- `Recycle` is displayed as `Recycle`
 
-The adapter will resolve the spoken alias to the canonical `appId`/`app_user` before filtering.
+Internal coloring/filtering may still normalize these values into `正常 / 告警 / 异常`, but the displayed text stays as the original lifecycle value.
+
+## Prompt responsibility split
+
+Responsibility is intentionally split:
+
+- the agent extracts MCP request arguments from the user's natural language:
+  - `appId`
+  - `resourceType`
+- the renderer only uses the prompt for display-side filtering:
+  - `relationType`
+  - `health`
+  - `keyword`
+  - `expandNeighbors`
+
+The renderer should not infer request-side `appId` from the prompt anymore.
 
 ## Local output behavior
 
-The dashboard builder can also open the generated file locally:
-- Pass `--open-output` to open the generated HTML with the default local app/browser
-- The script stdout includes `htmlPath`
-- If opening fails, stdout includes `openError` but HTML generation still succeeds
+The dashboard builder can open the generated file locally:
+- pass `--open-output` to open the generated HTML with the default local app/browser
+- stdout includes `htmlPath`
+- if opening fails, stdout includes `openError` but HTML generation still succeeds
 
-For "generate once, update later" mode, use `scripts/dashboard_session.py`:
-- `start` renders `dashboard.html` once and serves it over a local HTTP URL
-- `update` rewrites `session-control.json` and `session-state.json`
-- page polling can then refresh filters and data without regenerating HTML
-
-## Filter fields
-
-Inferred filter object:
-
-```json
-{
-  "project": "all|P001|P002|...",
-  "entityType": "all|api|service|db|middleware|compute|alarm|user|domain",
-  "relationType": "all|access|call|lb|host|monitor",
-  "health": "all|ok|warn|err",
-  "keyword": "string",
-  "resourceType": "all|kafka|docker|redis|elasticsearch|mysql|postgres|oracle|rabbitmq|rocketmq (comma-separated supported)",
-  "expandNeighbors": "true|false"
-}
-```
+For live-session mode:
+- `scripts/dashboard_session.py start` renders `dashboard.html` once and serves it over a local HTTP URL
+- `scripts/dashboard_session.py update` rereads the latest MCP JSON file and rewrites `session-control.json` plus `session-state.json`
+- the page polls these session files to refresh data without regenerating HTML on every run
