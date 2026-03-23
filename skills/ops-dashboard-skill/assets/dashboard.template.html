@@ -1093,6 +1093,82 @@ function rebuildRuntimeConfig(){
 
 rebuildRuntimeConfig();
 
+const TEXT_MEASURE_CTX = document.createElement('canvas').getContext('2d');
+
+function measureTextWidth(text, font){
+  const value = String(text || '');
+  if(!value) return 0;
+  if(TEXT_MEASURE_CTX){
+    TEXT_MEASURE_CTX.font = font;
+    return TEXT_MEASURE_CTX.measureText(value).width;
+  }
+  return value.length * 7;
+}
+
+function truncateTextByWidth(text, maxWidth, font){
+  const value = String(text || '');
+  if(!value || maxWidth <= 0) return '';
+  if(measureTextWidth(value, font) <= maxWidth) return value;
+  const ellipsis = '…';
+  const ellipsisWidth = measureTextWidth(ellipsis, font);
+  if(ellipsisWidth >= maxWidth) return ellipsis;
+
+  let lo = 0;
+  let hi = value.length;
+  while(lo < hi){
+    const mid = Math.ceil((lo + hi) / 2);
+    const candidate = value.slice(0, mid) + ellipsis;
+    if(measureTextWidth(candidate, font) <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return value.slice(0, lo) + ellipsis;
+}
+
+function appendProjectBadge(group, opts = {}){
+  const rawLabel = String(opts.label || '').trim();
+  const maxWidth = Number(opts.maxWidth || 0);
+  if(!rawLabel || maxWidth <= 0) return null;
+
+  const fontSize = Number(opts.fontSize || 7);
+  const height = Number(opts.height || 11);
+  const paddingX = Number(opts.paddingX || 5);
+  const minWidth = Number(opts.minWidth || 28);
+  const font = `${fontSize}px IBM Plex Mono, monospace`;
+  const textWidth = Math.max(8, maxWidth - paddingX * 2);
+  const label = truncateTextByWidth(rawLabel, textWidth, font);
+  const badgeWidth = Math.min(
+    maxWidth,
+    Math.max(minWidth, Math.ceil(measureTextWidth(label, font) + paddingX * 2))
+  );
+  const x = Number(opts.x || 0);
+  const y = Number(opts.y || 0);
+  const fill = opts.fill || '#1a9fff';
+  const opacity = opts.opacity === undefined ? 0.16 : opts.opacity;
+  const textOpacity = opts.textOpacity === undefined ? 0.82 : opts.textOpacity;
+
+  group.append('rect')
+    .attr('x', x)
+    .attr('y', y)
+    .attr('width', badgeWidth)
+    .attr('height', height)
+    .attr('rx', Math.min(4, height / 2))
+    .attr('fill', fill)
+    .attr('opacity', opacity);
+
+  group.append('text')
+    .attr('x', x + badgeWidth / 2)
+    .attr('y', y + height - 2)
+    .attr('text-anchor', 'middle')
+    .attr('font-size', fontSize)
+    .attr('font-family', 'IBM Plex Mono, monospace')
+    .attr('fill', fill)
+    .attr('opacity', textOpacity)
+    .attr('pointer-events', 'none')
+    .text(label);
+
+  return { width: badgeWidth, label };
+}
+
 // ── 运行时state ─────────────────────────────────────────────────────────────
 let rawData = cloneJson(normalizeGraphDataShape(GRAPH_DATA)); // deep copy; live updates rewrite this
 
@@ -2473,29 +2549,29 @@ function renderGraph(){
     if(!isUser && node.project_id){
       const pcfg = PROJ_CONFIG[node.project_id];
       if(pcfg){
-        ng.append('rect')
-          .attr('x', nw-36).attr('y', nh-14)
-          .attr('width',32).attr('height',10)
-          .attr('rx',2)
-          .attr('fill', pcfg.color)
-          .attr('opacity',0.15);
-        ng.append('text')
-          .attr('x',nw-20).attr('y',nh-5)
-          .attr('text-anchor','middle')
-          .attr('font-size',7)
-          .attr('font-family','IBM Plex Mono, monospace')
-          .attr('fill',pcfg.color)
-          .attr('opacity',0.8)
-          .text(node.project_id);
+        appendProjectBadge(ng, {
+          label: node.project_id,
+          x: 10,
+          y: 4,
+          maxWidth: Math.max(30, nw - 28),
+          fill: pcfg.color,
+          opacity: 0.15,
+          fontSize: 7,
+          minWidth: 28,
+          height: 11
+        });
       }
     }
 
     // Node name
-    const displayName = node.entity_name.length > 10 
-      ? node.entity_name.slice(0,9)+'…' 
-      : node.entity_name;
+    const displayName = truncateTextByWidth(
+      node.entity_name,
+      Math.max(34, nw - 26),
+      '12px "Noto Sans SC", sans-serif'
+    );
+    const nameY = isUser ? nh / 2 + 4 : Math.min(nh - 18, Math.max(24, Math.round(nh * 0.54)));
     ng.append('text')
-      .attr('x', nw/2+2).attr('y', isUser ? nh/2+4 : nh/2-2)
+      .attr('x', nw/2+2).attr('y', nameY)
       .attr('text-anchor','middle')
       .attr('font-size',12)
       .attr('font-weight',500)
@@ -2505,6 +2581,11 @@ function renderGraph(){
       .text(displayName);
 
     if(!isUser){
+      const typeLabel = truncateTextByWidth(
+        node.entity_type,
+        Math.max(28, nw - 22),
+        '8px "IBM Plex Mono", monospace'
+      );
       ng.append('text')
         .attr('x',nw/2+2).attr('y',nh-7)
         .attr('text-anchor','middle')
@@ -2513,7 +2594,7 @@ function renderGraph(){
         .attr('fill',color)
         .attr('opacity',0.7)
         .attr('pointer-events','none')
-        .text(node.entity_type);
+        .text(typeLabel);
     }
 
     // Drag behavior
@@ -2627,12 +2708,17 @@ function _drawCollapsedNode(node, nodeGroup, dispNodes, dispEdges){
   // Project badge
   const pcfg = PROJ_CONFIG[node.project_id];
   if(pcfg){
-    cg.append('rect').attr('x',6).attr('y',CH-14).attr('width',36).attr('height',10)
-      .attr('rx',2).attr('fill',pcfg.color).attr('opacity',0.15);
-    cg.append('text').attr('x',24).attr('y',CH-5)
-      .attr('text-anchor','middle').attr('font-size',7)
-      .attr('font-family','IBM Plex Mono,monospace').attr('fill',pcfg.color).attr('opacity',0.8)
-      .attr('pointer-events','none').text(node.project_id);
+    appendProjectBadge(cg, {
+      label: node.project_id,
+      x: 6,
+      y: CH - 14,
+      maxWidth: Math.max(32, CW - 18),
+      fill: pcfg.color,
+      opacity: 0.15,
+      fontSize: 7,
+      minWidth: 30,
+      height: 10
+    });
   }
 
   // ── Drag ──────────────────────────────────────────────────────────────
@@ -4199,21 +4285,37 @@ function _renderDataFlowDiagram(){
       .attr('rx',2).attr('fill',td.color);
     ng.append('circle').attr('cx',NODE_W-9).attr('cy',9).attr('r',3.5).attr('fill',hc).attr('opacity',0.9);
     if(pcfg){
-      ng.append('rect').attr('x',6).attr('y',NODE_H-14).attr('width',34).attr('height',10)
-        .attr('rx',2).attr('fill',pcfg.color).attr('opacity',0.18);
-      ng.append('text').attr('x',23).attr('y',NODE_H-5).attr('text-anchor','middle')
-        .attr('font-size',7).attr('font-family','IBM Plex Mono,monospace')
-        .attr('fill',pcfg.color).attr('opacity',0.8).attr('pointer-events','none').text(n.project_id);
+      appendProjectBadge(ng, {
+        label: n.project_id,
+        x: 8,
+        y: 4,
+        maxWidth: Math.max(30, NODE_W - 28),
+        fill: pcfg.color,
+        opacity: 0.18,
+        fontSize: 7,
+        minWidth: 28,
+        height: 11
+      });
     }
-    const dname=n.entity_name.length>13?n.entity_name.slice(0,12)+'…':n.entity_name;
-    ng.append('text').attr('x',NODE_W/2+2).attr('y',NODE_H/2-1)
+    const dname = truncateTextByWidth(
+      n.entity_name,
+      Math.max(34, NODE_W - 26),
+      '11px "Noto Sans SC", sans-serif'
+    );
+    const nameY = Math.min(NODE_H - 18, Math.max(23, Math.round(NODE_H * 0.54)));
+    ng.append('text').attr('x',NODE_W/2+2).attr('y',nameY)
       .attr('text-anchor','middle').attr('font-size',11).attr('font-weight',600)
       .attr('font-family','Noto Sans SC,sans-serif').attr('fill','#cce4ff')
       .attr('pointer-events','none').text(dname);
+    const typeLabel = truncateTextByWidth(
+      n.entity_type,
+      Math.max(28, NODE_W - 22),
+      '8px "IBM Plex Mono", monospace'
+    );
     ng.append('text').attr('x',NODE_W/2+2).attr('y',NODE_H-7)
       .attr('text-anchor','middle').attr('font-size',8)
       .attr('font-family','IBM Plex Mono,monospace').attr('fill',td.color).attr('opacity',0.6)
-      .attr('pointer-events','none').text(n.entity_type);
+      .attr('pointer-events','none').text(typeLabel);
     ng.on('mousemove',(ev,d)=>{
       const hColor=d.health_status==='正常'?'var(--green)':d.health_status==='告警'?'var(--yellow)':'var(--red)';
       const inRels=rels.filter(r=>r.target_entity_id===d.entity_id);
@@ -4872,10 +4974,17 @@ window.__OPS_DASHBOARD_SKILL__ = {
   }
 };
 
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
   aggMode = true;
+  if(liveSessionEnabled()){
+    const synced = await pullLiveSessionState(true);
+    if(!synced){
+      applyDashboardBootstrap({ forceAggMode: true, notify: true });
+    }
+    startLiveSessionPolling();
+    return;
+  }
   applyDashboardBootstrap({ forceAggMode: true, notify: true });
-  startLiveSessionPolling();
 });
 
 window.addEventListener('message', handleSkillMessage);

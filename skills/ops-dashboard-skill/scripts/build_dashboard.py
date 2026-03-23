@@ -678,7 +678,6 @@ def render_dashboard(
     graph_data: Dict,
     app_config: Dict,
     skill_state: Dict,
-    legacy_payload: Dict,
     output_path: Path,
 ) -> None:
     template = template_path.read_text(encoding="utf-8")
@@ -686,7 +685,6 @@ def render_dashboard(
     rendered = rendered.replace("__GRAPH_DATA_JSON__", json.dumps(graph_data, ensure_ascii=False))
     rendered = rendered.replace("__APP_CONFIG_JSON__", json.dumps(app_config, ensure_ascii=False))
     rendered = rendered.replace("__SKILL_STATE_JSON__", json.dumps(skill_state, ensure_ascii=False))
-    rendered = rendered.replace("__PAYLOAD_JSON__", json.dumps(legacy_payload, ensure_ascii=False))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(rendered, encoding="utf-8")
 
@@ -750,54 +748,47 @@ def main() -> int:
     app_config = build_app_config(graph_data)
     ui_filters = to_ui_filters(filters)
 
+    meta = {
+        "source": ctx.source,
+        "rawNodeCount": ctx.raw_node_count,
+        "rawLinkCount": ctx.raw_link_count,
+        "appId": app_id,
+    }
+
     skill_state = {
         "prompt": args.prompt,
         "filters": ui_filters,
         "summary": summary,
-        "meta": {
-            "source": ctx.source,
-            "rawNodeCount": ctx.raw_node_count,
-            "rawLinkCount": ctx.raw_link_count,
-            "appId": app_id,
-        },
+        "meta": meta,
     }
 
-    payload = {
+    meta_payload = {
         "title": args.title,
         "prompt": args.prompt,
         "filters": filters,
         "uiFilters": ui_filters,
         "summary": summary,
-        "filtered": {
-            "nodes": filtered_nodes,
-            "links": filtered_links,
-        },
-        "dataset": {
-            "nodes": normalized["nodes"],
-            "links": normalized["links"],
-        },
-        "graphData": graph_data,
         "appConfig": app_config,
         "skillState": skill_state,
-        "meta": {
-            "source": ctx.source,
-            "rawNodeCount": ctx.raw_node_count,
-            "rawLinkCount": ctx.raw_link_count,
-            "appId": app_id,
+        "meta": meta,
+        "filtered": {
+            "nodeCount": len(filtered_nodes),
+            "linkCount": len(filtered_links),
         },
+        "updatedAt": datetime.now().isoformat(timespec="seconds"),
     }
 
     output_path = Path(args.output).expanduser().resolve()
     template_path = Path(args.template).expanduser().resolve()
 
     try:
-        render_dashboard(template_path, args.title, graph_data, app_config, skill_state, payload, output_path)
+        render_dashboard(template_path, args.title, graph_data, app_config, skill_state, output_path)
     except Exception as exc:  # noqa: BLE001
         print(f"[ERROR] render failed: {exc}", file=sys.stderr)
         return 3
 
     meta_path = output_path.parent / f"{output_path.stem}.meta.json"
-    meta_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    meta_path.write_text(json.dumps(meta_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     opened = False
     open_error = ""

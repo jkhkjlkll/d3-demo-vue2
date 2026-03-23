@@ -1,4 +1,4 @@
 interface:
   display_name: "运维图谱看板 Skill"
   short_description: "读取 agent 先写入的 MCP JSON，并基于内置 HTML 模板生成或更新运维图谱看板。"
-  default_prompt: "使用 $ops-dashboard-skill 时，只允许走 MCP 工作流。先由 agent 调用内置 MCP 工具，使用占位契约 `server=__MCP_SERVER_NAME__`、`tool=__MCP_TOOL_NAME__`，并传入 `appId` 与 `resourceType`；再把 MCP 原始返回写到 `skills/ops-dashboard-skill/runtime/mcp-input.json`；最后在 `skills/ops-dashboard-skill` 目录执行 `python3 scripts/run_ops_dashboard.py --input-json ./runtime/mcp-input.json --prompt \"<用户原话>\"`。不能改走 API，不能使用 mock，不能手写替代 HTML，最终必须返回脚本输出中的准确 htmlPath 和 url。"
+  default_prompt: "使用 $ops-dashboard-skill 时，只允许走 MCP 工作流。先由 agent 调用内置 MCP 工具，使用 `server=ges_mcp_server`、`tool=query_ges`，并传入 `appId` 与 `resourceType`；如果宿主 file tool 对覆盖写有限制，先在 `skills/ops-dashboard-skill` 目录执行 `python3 scripts/next_input_path.py` 获取一个新的 JSON 路径，再把 MCP 原始返回写到该路径；否则也可以直接写到 `skills/ops-dashboard-skill/runtime/mcp-input.json`。最后执行 `python3 scripts/run_ops_dashboard.py --input-json <刚写入的路径> --prompt \"<用户原话>\"`。不能改走 API，不能使用 mock，不能手写替代 HTML，最终必须返回脚本输出中的准确 htmlPath 和 url。"

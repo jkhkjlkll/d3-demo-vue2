@@ -178,7 +178,6 @@ def build_payload(config: Dict[str, Any], prompt: str) -> Dict[str, Any]:
         "summary": summary,
         "graphData": graph_data,
         "appConfig": app_config,
-        "normalized": normalized,
         "meta": {
             "source": ctx.source,
             "rawNodeCount": ctx.raw_node_count,
@@ -220,11 +219,9 @@ def build_live_payload_bundle(
         "filters": payload["filters"],
         "uiFilters": payload["uiFilters"],
         "summary": payload["summary"],
-        "dataset": payload["normalized"],
-        "graphData": payload["graphData"],
         "appConfig": payload["appConfig"],
-        "skillState": skill_state,
         "meta": payload["meta"],
+        "liveSession": live_session,
         "updatedAt": now_iso(),
     }
 
@@ -316,10 +313,9 @@ def render_session_html(
     builder.render_dashboard(
         builder.DEFAULT_TEMPLATE,
         config.get("title", "Ops Dashboard Live Session"),
-        payload["graphData"],
+        {"nodes": [], "relations": []},
         payload["appConfig"],
         bundle["skill_state"],
-        bundle["meta"],
         html_path,
     )
     return str(html_path.resolve())

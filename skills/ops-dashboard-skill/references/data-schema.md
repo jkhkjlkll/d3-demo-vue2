@@ -2,7 +2,7 @@
 
 Use this schema when the agent has already called the internal MCP tool and written the result to the skill's local JSON file.
 
-## Fixed input path
+## Input path
 
 Default relative path:
 
@@ -16,14 +16,28 @@ Repository absolute path:
 /Users/xiao/code/d3-demo-vue2/skills/ops-dashboard-skill/runtime/mcp-input.json
 ```
 
-## MCP contract placeholders
+If the host file tool refuses to overwrite existing files unless they were read first, allocate a fresh input path instead:
 
-Because the real intranet names cannot be stored here, use placeholders in the skill contract:
+```bash
+python3 scripts/next_input_path.py
+```
+
+Example output:
+
+```text
+/Users/xiao/code/d3-demo-vue2/skills/ops-dashboard-skill/runtime/inbox/mcp-input-20260323T113000-ab12cd34.json
+```
+
+The renderer accepts any local JSON path passed through `--input-json`.
+
+## MCP contract
+
+Use the following MCP contract:
 
 ```json
 {
-  "server": "__MCP_SERVER_NAME__",
-  "tool": "__MCP_TOOL_NAME__",
+  "server": "ges_mcp_server",
+  "tool": "query_ges",
   "arguments": {
     "appId": "<appId>",
     "resourceType": "<resourceType>"
@@ -31,7 +45,7 @@ Because the real intranet names cannot be stored here, use placeholders in the s
 }
 ```
 
-If the host agent exposes a single MCP entrypoint rather than separate server/tool names, treat `__MCP_TOOL_NAME__` as that single entrypoint name.
+If the host agent exposes a single MCP entrypoint rather than separate server/tool names, treat `query_ges` as that single entrypoint name.
 
 ## Accepted payload shape
 
@@ -133,5 +147,5 @@ The dashboard builder can open the generated file locally:
 
 For live-session mode:
 - `scripts/dashboard_session.py start` renders `dashboard.html` once and serves it over a local HTTP URL
-- `scripts/dashboard_session.py update` rereads the latest MCP JSON file and rewrites `session-control.json` plus `session-state.json`
+- `scripts/dashboard_session.py update` rereads the JSON file provided by `--input-json` and rewrites `session-control.json` plus `session-state.json`
 - the page polls these session files to refresh data without regenerating HTML on every run
