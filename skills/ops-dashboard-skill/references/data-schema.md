@@ -16,19 +16,7 @@ Repository absolute path:
 /Users/xiao/code/d3-demo-vue2/skills/ops-dashboard-skill/runtime/mcp-input.json
 ```
 
-If the host file tool refuses to overwrite existing files unless they were read first, allocate a fresh input path instead:
-
-```bash
-python3 scripts/next_input_path.py
-```
-
-Example output:
-
-```text
-/Users/xiao/code/d3-demo-vue2/skills/ops-dashboard-skill/runtime/inbox/mcp-input-20260323T113000-ab12cd34.json
-```
-
-The renderer accepts any local JSON path passed through `--input-json`.
+If the host file tool refuses to overwrite an existing file unless it was read first, read `./runtime/mcp-input.json` before overwriting it. If the file does not exist yet, create it directly.
 
 ## MCP contract
 
@@ -99,12 +87,22 @@ Optional fields that may exist and are tolerated:
 - `labels`
 - other business metadata
 
+Special handling:
+- when `nodes[].resource_type = "alarm"`, the renderer treats that node as the `告警` entity type
+- alarm nodes are counted by the page's `告警` metric
+- if a non-alarm resource is connected to one or more alarm nodes through `relations[]`, that resource is marked as abnormal/red in the topology
+- if a non-alarm resource has no related alarm nodes, it is marked as normal/green
+
 ## Relation mapping
 
 Input fields used by the renderer:
-- Relation source: `relations[].startNodeId`
-- Relation target: `relations[].endNodeId`
+- Relation source: `relations[].startNode`
+- Relation target: `relations[].endNode`
 - Relation type: `relations[].relation_type`
+
+Legacy aliases still tolerated for compatibility:
+- `relations[].startNodeId`
+- `relations[].endNodeId`
 
 Known relation aliases:
 - `contains` -> `包含`
@@ -147,5 +145,5 @@ The dashboard builder can open the generated file locally:
 
 For live-session mode:
 - `scripts/dashboard_session.py start` renders `dashboard.html` once and serves it over a local HTTP URL
-- `scripts/dashboard_session.py update` rereads the JSON file provided by `--input-json` and rewrites `session-control.json` plus `session-state.json`
+- `scripts/dashboard_session.py update` rereads the latest MCP JSON file and rewrites `session-control.json` plus `session-state.json`
 - the page polls these session files to refresh data without regenerating HTML on every run

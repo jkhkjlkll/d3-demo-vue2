@@ -201,6 +201,12 @@ class BuildContext:
     raw_link_count: int
 
 
+def ensure_skill_cwd() -> None:
+    cwd = Path.cwd().resolve()
+    if cwd != SKILL_DIR:
+        raise RuntimeError(f"Skill commands must run from {SKILL_DIR}, current cwd: {cwd}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build dashboard from MCP JSON + natural language")
     parser.add_argument(
@@ -278,9 +284,12 @@ def normalize_node(raw: Dict, default_project: str = "UNKNOWN") -> Dict | None:
     resource_type_text = str(resource_type_raw or "").strip()
     resource_type_key = resource_type_text.lower()
 
-    node_type = normalize_entity_key(
-        str(raw.get("type") or raw.get("entity_type") or raw.get("resource_type") or "unknown")
-    )
+    if resource_type_key == "alarm":
+        node_type = "alarm"
+    else:
+        node_type = normalize_entity_key(
+            str(raw.get("type") or raw.get("entity_type") or raw.get("resource_type") or "unknown")
+        )
     project = str(
         raw.get("project")
         or raw.get("project_id")
@@ -307,8 +316,20 @@ def normalize_node(raw: Dict, default_project: str = "UNKNOWN") -> Dict | None:
 
 
 def normalize_link(raw: Dict) -> Dict | None:
-    source = str(raw.get("source") or raw.get("source_entity_id") or raw.get("startNodeId") or "").strip()
-    target = str(raw.get("target") or raw.get("target_entity_id") or raw.get("endNodeId") or "").strip()
+    source = str(
+        raw.get("source")
+        or raw.get("source_entity_id")
+        or raw.get("startNode")
+        or raw.get("startNodeId")
+        or ""
+    ).strip()
+    target = str(
+        raw.get("target")
+        or raw.get("target_entity_id")
+        or raw.get("endNode")
+        or raw.get("endNodeId")
+        or ""
+    ).strip()
     if not source or not target:
         return None
     return {
@@ -504,12 +525,20 @@ def build_summary(nodes: List[Dict], links: List[Dict]) -> Dict:
     health_counter = {"ok": 0, "warn": 0, "err": 0}
     entity_counter: Dict[str, int] = {}
     projects = set()
+    alarm_node_ids, related_alarm_ids = build_alarm_index(nodes, links)
 
     for node in nodes:
-        projects.add(node.get("project", "UNKNOWN"))
-        h = health_to_key(node.get("health", "正常"))
+        node_id = str(node.get("id") or node.get("entity_id") or "").strip()
+        projects.add(node.get("project") or node.get("project_id") or "UNKNOWN")
+        if node_id in alarm_node_ids:
+            level = "告警"
+        elif related_alarm_ids.get(node_id):
+            level = "异常"
+        else:
+            level = "正常"
+        h = health_to_key(level)
         health_counter[h] = health_counter.get(h, 0) + 1
-        et = key_to_entity_label(node.get("type", "unknown"))
+        et = key_to_entity_label(node.get("type") or node.get("entity_type") or "unknown")
         entity_counter[et] = entity_counter.get(et, 0) + 1
 
     return {
@@ -519,6 +548,7 @@ def build_summary(nodes: List[Dict], links: List[Dict]) -> Dict:
         "okCount": health_counter.get("ok", 0),
         "warnCount": health_counter.get("warn", 0),
         "errCount": health_counter.get("err", 0),
+        "alarmCount": len(alarm_node_ids),
         "entityTypeCounts": entity_counter,
     }
 
@@ -567,22 +597,71 @@ def worst_health(*values: str) -> str:
     return max(normalized, key=lambda x: level.get(x, 0))
 
 
+def is_alarm_node_record(node: Dict) -> bool:
+    resource_type = str(
+        node.get("resourceTypeRaw")
+        or node.get("resourceType")
+        or node.get("resource_type")
+        or ""
+    ).strip().lower()
+    if resource_type == "alarm":
+        return True
+
+    node_type = str(node.get("type") or node.get("entity_type") or "").strip()
+    if not node_type:
+        return False
+    if node_type.lower() == "alarm":
+        return True
+    return key_to_entity_label(node_type) == "告警" or node_type == "告警"
+
+
+def build_alarm_index(nodes: List[Dict], links: List[Dict]) -> Tuple[set[str], Dict[str, set[str]]]:
+    node_ids = {str(node.get("id") or node.get("entity_id") or "").strip() for node in nodes}
+    alarm_node_ids = {
+        str(node.get("id") or node.get("entity_id") or "").strip()
+        for node in nodes
+        if is_alarm_node_record(node)
+    }
+
+    related_alarm_ids: Dict[str, set[str]] = {node_id: set() for node_id in node_ids if node_id}
+    for link in links:
+        source = str(link.get("source") or link.get("source_entity_id") or "").strip()
+        target = str(link.get("target") or link.get("target_entity_id") or "").strip()
+        if not source or not target:
+            continue
+        if source in alarm_node_ids and target not in alarm_node_ids:
+            related_alarm_ids.setdefault(target, set()).add(source)
+        elif target in alarm_node_ids and source not in alarm_node_ids:
+            related_alarm_ids.setdefault(source, set()).add(target)
+
+    return alarm_node_ids, related_alarm_ids
+
+
 def to_graph_data(nodes: List[Dict], links: List[Dict]) -> Dict[str, List[Dict]]:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    alarm_node_ids, related_alarm_ids = build_alarm_index(nodes, links)
 
     graph_nodes: List[Dict] = []
     node_health: Dict[str, str] = {}
     for node in nodes:
         health_display = normalize_health_display(node.get("health", "正常"))
+        health_text = node.get("healthText", health_display)
+        node_id = node["id"]
+        is_alarm_node = node_id in alarm_node_ids
+        alarm_count = len(related_alarm_ids.get(node_id, set()))
+        node_level = "告警" if is_alarm_node else "异常" if alarm_count > 0 else "正常"
         node_health[node["id"]] = health_display
         graph_nodes.append(
             {
-                "entity_id": node["id"],
-                "entity_name": node.get("label", node["id"]),
+                "entity_id": node_id,
+                "entity_name": node.get("label", node_id),
                 "entity_type": key_to_entity_label(node.get("type", "unknown")),
                 "project_id": node.get("project", "UNKNOWN"),
-                "health_status": health_display,
-                "health_text": node.get("healthText", health_display),
+                "health_status": health_text,
+                "health_level": node_level,
+                "health_text": health_text,
+                "is_alarm_node": is_alarm_node,
+                "alarm_count": alarm_count,
                 "resource_type": node.get("resourceTypeRaw") or node.get("resourceType") or "",
                 "created_at": now,
                 "updated_at": now,
@@ -596,14 +675,16 @@ def to_graph_data(nodes: List[Dict], links: List[Dict]) -> Dict[str, List[Dict]]
             node_health.get(link.get("target", ""), "正常"),
             link.get("health", "正常"),
         )
+        relation_text = link.get("healthText", relation_health)
         graph_relations.append(
             {
                 "relation_id": f"R-{idx:05d}",
                 "relation_type": key_to_relation_label(link.get("type", "unknown")),
                 "source_entity_id": link.get("source"),
                 "target_entity_id": link.get("target"),
-                "health_status": relation_health,
-                "health_text": link.get("healthText", relation_health),
+                "health_status": relation_text,
+                "health_level": relation_health,
+                "health_text": relation_text,
                 "created_at": now,
                 "updated_at": now,
             }
@@ -710,6 +791,7 @@ def derive_app_id(nodes: List[Dict]) -> str:
 
 
 def load_source_data(args: argparse.Namespace) -> Tuple[Dict[str, List[Dict]], BuildContext]:
+    ensure_skill_cwd()
     input_path = Path(str(getattr(args, "input_json", "") or DEFAULT_INPUT_JSON)).expanduser().resolve()
     if not input_path.exists():
         raise RuntimeError(f"MCP input JSON not found: {input_path}")
@@ -720,6 +802,8 @@ def load_source_data(args: argparse.Namespace) -> Tuple[Dict[str, List[Dict]], B
         raise RuntimeError(f"MCP input JSON is invalid: {exc}") from exc
 
     normalized = normalize_payload(payload, default_project="UNKNOWN")
+    if not normalized["nodes"] and not normalized["links"]:
+        raise RuntimeError("MCP returned no graph data (nodes=0, relations=0); report this directly to the user and do not fabricate data")
     return normalized, BuildContext(
         source=f"input:{input_path}",
         raw_node_count=len(normalized["nodes"]),
