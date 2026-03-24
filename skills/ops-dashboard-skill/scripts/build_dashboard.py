@@ -141,6 +141,21 @@ RELATION_KEY_TO_DISPLAY = {
     "same_as": "同一资源",
 }
 
+RESOURCE_PROMPT_HINTS = [
+    ("ec2", ["ec2"]),
+    ("ecs", ["ecs"]),
+    ("docker", ["docker", "容器"]),
+    ("redis", ["redis"]),
+    ("kafka", ["kafka"]),
+    ("elasticsearch", ["elasticsearch", "es"]),
+    ("mysql", ["mysql"]),
+    ("postgres", ["postgres", "postgresql"]),
+    ("oracle", ["oracle"]),
+    ("rabbitmq", ["rabbitmq"]),
+    ("rocketmq", ["rocketmq"]),
+    ("esfs", ["esfs"]),
+]
+
 ENTITY_COLOR_MAP = {
     "用户": "#4db8ff",
     "域名上下文根": "#00e5ff",
@@ -215,7 +230,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input-json",
         default=str(DEFAULT_INPUT_JSON),
-        help="Local JSON payload path written by the agent after calling the MCP tool",
+        help="Local JSON payload path; can be the original file returned by MCP, not necessarily runtime/mcp-input.json",
     )
     parser.add_argument("--prompt", default="", help="Natural-language request used to infer filters")
     parser.add_argument("--output", default="./out/dashboard.html", help="Output HTML file path")
@@ -299,6 +314,39 @@ def normalize_project_value(value: object) -> str:
     return text
 
 
+def build_node_reference_index(nodes: List[Dict], *, include_alarm_nodes: bool = True) -> Tuple[Dict[str, str], Dict[str, str]]:
+    exact: Dict[str, str] = {}
+    lowered: Dict[str, str] = {}
+
+    for node in nodes:
+        if not include_alarm_nodes and is_alarm_node_record(node):
+            continue
+
+        node_id = str(node.get("id") or node.get("entity_id") or "").strip()
+        if not node_id:
+            continue
+
+        refs = [
+            node_id,
+            str(node.get("hrn") or "").strip(),
+            str(node.get("resourceId") or node.get("resource_id") or "").strip(),
+        ]
+        for ref in refs:
+            if not ref:
+                continue
+            exact.setdefault(ref, node_id)
+            lowered.setdefault(ref.lower(), node_id)
+
+    return exact, lowered
+
+
+def resolve_node_reference(ref: object, exact_index: Dict[str, str], lowered_index: Dict[str, str]) -> str:
+    text = str(ref or "").strip()
+    if not text:
+        return ""
+    return exact_index.get(text) or lowered_index.get(text.lower(), "")
+
+
 def resolve_project_id(raw: Dict, default_project: str = "UNKNOWN") -> str:
     candidates = [
         raw.get("project"),
@@ -357,21 +405,23 @@ def normalize_node(raw: Dict, default_project: str = "UNKNOWN") -> Dict | None:
     }
 
 
-def normalize_link(raw: Dict) -> Dict | None:
-    source = str(
+def normalize_link(raw: Dict, exact_index: Dict[str, str], lowered_index: Dict[str, str]) -> Dict | None:
+    source_raw = str(
         raw.get("source")
         or raw.get("source_entity_id")
         or raw.get("startNode")
         or raw.get("startNodeId")
         or ""
     ).strip()
-    target = str(
+    target_raw = str(
         raw.get("target")
         or raw.get("target_entity_id")
         or raw.get("endNode")
         or raw.get("endNodeId")
         or ""
     ).strip()
+    source = resolve_node_reference(source_raw, exact_index, lowered_index)
+    target = resolve_node_reference(target_raw, exact_index, lowered_index)
     if not source or not target:
         return None
     return {
@@ -421,11 +471,11 @@ def normalize_payload(payload: Dict, default_project: str = "UNKNOWN") -> Dict[s
             links_raw.extend(item for item in raw_relations if isinstance(item, dict))
 
     nodes = [n for n in (normalize_node(item or {}, default_project=default_project) for item in nodes_raw) if n]
-    node_ids = {n["id"] for n in nodes}
+    exact_index, lowered_index = build_node_reference_index(nodes)
     links = [
         l
-        for l in (normalize_link(item or {}) for item in links_raw)
-        if l and l["source"] in node_ids and l["target"] in node_ids
+        for l in (normalize_link(item or {}, exact_index, lowered_index) for item in links_raw)
+        if l
     ]
     links = build_alarm_links_from_hrn(nodes, links)
     return {"nodes": nodes, "links": links}
@@ -487,6 +537,11 @@ def infer_filters_from_prompt(
 
     if re.search(r"上下游|上游|下游|依赖|链路|调用链|upstream|downstream", low):
         filters["expandNeighbors"] = "true"
+
+    for resource_type, hints in RESOURCE_PROMPT_HINTS:
+        if any(hint in low for hint in hints):
+            filters["resourceType"] = resource_type
+            break
 
     filters["keyword"] = infer_keyword(text)
     return filters
@@ -661,9 +716,7 @@ def is_alarm_node_record(node: Dict) -> bool:
 
 
 def build_alarm_links_from_hrn(nodes: List[Dict], links: List[Dict]) -> List[Dict]:
-    hrn_to_node: Dict[str, str] = {}
-    resource_id_to_node: Dict[str, str] = {}
-    node_id_to_node: Dict[str, str] = {}
+    exact_index, lowered_index = build_node_reference_index(nodes, include_alarm_nodes=False)
     alarm_nodes: List[Dict] = []
 
     for node in nodes:
@@ -672,15 +725,6 @@ def build_alarm_links_from_hrn(nodes: List[Dict], links: List[Dict]) -> List[Dic
             continue
         if is_alarm_node_record(node):
             alarm_nodes.append(node)
-            continue
-        hrn = str(node.get("hrn") or "").strip()
-        resource_id = str(node.get("resourceId") or node.get("resource_id") or "").strip()
-        if hrn and hrn not in hrn_to_node:
-            hrn_to_node[hrn] = node_id
-        if resource_id and resource_id not in resource_id_to_node:
-            resource_id_to_node[resource_id] = node_id
-        if node_id not in node_id_to_node:
-            node_id_to_node[node_id] = node_id
 
     existing_pairs = {
         (str(link.get("source") or "").strip(), str(link.get("target") or "").strip())
@@ -694,7 +738,7 @@ def build_alarm_links_from_hrn(nodes: List[Dict], links: List[Dict]) -> List[Dic
         target_ref = str(alarm.get("hrn") or "").strip()
         if not alarm_id or not target_ref:
             continue
-        target_id = hrn_to_node.get(target_ref) or resource_id_to_node.get(target_ref) or node_id_to_node.get(target_ref)
+        target_id = resolve_node_reference(target_ref, exact_index, lowered_index)
         if not target_id or target_id == alarm_id:
             continue
         if (alarm_id, target_id) in existing_pairs or (target_id, alarm_id) in existing_pairs:
@@ -852,6 +896,8 @@ def to_ui_filters(filters: Dict[str, str]) -> Dict[str, str]:
         else key_to_relation_label(filters.get("relationType", "")),
         "health": "all" if filters.get("health", "all") == "all" else key_to_health(filters.get("health", "ok")),
         "keyword": filters.get("keyword", ""),
+        "resourceType": filters.get("resourceType", "all"),
+        "expandNeighbors": filters.get("expandNeighbors", "false"),
     }
 
 

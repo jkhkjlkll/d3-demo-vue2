@@ -1,8 +1,8 @@
 # MCP 数据结构说明
 
-当 agent 已经调用内部 MCP 工具，并把结果写入 skill 本地 JSON 文件后，请按本说明解析数据。
+当 agent 已经调用内部 MCP 工具，并拿到一个可读取的本地 JSON 文件，或把结果写入 skill 本地 JSON 文件后，请按本说明解析数据。
 
-如果 `query_ges` 已经直接返回符合本说明的 JSON 文本，就把这段文本原样写入 `./runtime/mcp-input.json`。不要再额外包装一层更大的 JSON。
+如果 `query_ges` 返回的是宿主可直接读取的本地文件，就直接把那个文件路径传给 `--input-json`。只有在它只返回 JSON 文本、没有可读文件路径时，才把这段文本原样写入 `./runtime/mcp-input.json`。不要再额外包装一层更大的 JSON。
 
 ## 输入路径
 
@@ -12,14 +12,14 @@
 ./runtime/mcp-input.json
 ```
 
-如果宿主确实需要绝对路径，请在运行时基于当前 skill 目录解析 `./runtime/mcp-input.json`；不要在文档或 prompt 里写死某台机器上的仓库绝对路径。
+如果宿主确实需要绝对路径，请在运行时基于当前 skill 目录解析 `./runtime/mcp-input.json`；不要在文档或 prompt 里写死某台机器上的仓库绝对路径。MCP 直接返回的原始文件路径则直接使用，不需要复制。
 
-如果宿主 file tool 在覆盖已有文件前要求先读取：
+如果宿主 file tool 在覆盖已有文件前要求先读取，而且当前走的是“写固定路径”分支：
 - 先读取 `./runtime/mcp-input.json`
 - 再覆盖写回同一路径
 - 如果文件还不存在，可以直接创建
 
-对于大 payload，不要退回到 PowerShell 或字符串拼接脚本去重写文件；如果宿主无法把原始 JSON 文本稳定写到这个固定路径，就直接报告真实错误。
+对于大 payload，优先直接使用 MCP 返回的原始文件；不要退回到 PowerShell 或字符串拼接脚本去重写文件。只有在没有原始文件、只有 JSON 文本时，才写固定路径；如果宿主仍无法稳定写入，就直接报告真实错误。
 
 ## MCP 调用契约
 

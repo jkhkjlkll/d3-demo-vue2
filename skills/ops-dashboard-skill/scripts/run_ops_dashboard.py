@@ -28,7 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input-json",
         default=str(builder.DEFAULT_INPUT_JSON),
-        help="Local JSON payload path written by the agent after calling the MCP tool",
+        help="Local JSON payload path; can be the original file returned by MCP, not necessarily runtime/mcp-input.json",
     )
     parser.add_argument("--title", default="Ops Dashboard Live Session", help="Dashboard title")
     parser.add_argument("--port", type=int, default=8765, help="Preferred local port for the live dashboard server")

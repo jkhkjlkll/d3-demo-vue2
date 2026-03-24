@@ -84,7 +84,7 @@ def add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--input-json",
         default=str(builder.DEFAULT_INPUT_JSON),
-        help="Local JSON payload path written by the agent after calling the MCP tool",
+        help="Local JSON payload path; can be the original file returned by MCP, not necessarily runtime/mcp-input.json",
     )
     parser.add_argument("--prompt", default="", help="Natural-language request used to infer filters")
     parser.add_argument("--title", default="Ops Dashboard Live Session", help="Dashboard title")

@@ -1016,7 +1016,9 @@ const DEFAULT_SKILL_FILTERS = {
   entityType: 'all',
   relationType: 'all',
   health: 'all',
-  keyword: ''
+  keyword: '',
+  resourceType: 'all',
+  expandNeighbors: false
 };
 
 // ── Derived runtime constants — rebuilt whenever live session state changes ──
@@ -4920,6 +4922,27 @@ function inferSkillFiltersFromPrompt(promptText){
     inferred.expandNeighbors = true;
   }
 
+  const resourceHints = [
+    ['ec2', ['ec2']],
+    ['ecs', ['ecs']],
+    ['docker', ['docker', '容器']],
+    ['redis', ['redis']],
+    ['kafka', ['kafka']],
+    ['elasticsearch', ['elasticsearch', 'es']],
+    ['mysql', ['mysql']],
+    ['postgres', ['postgres', 'postgresql']],
+    ['oracle', ['oracle']],
+    ['rabbitmq', ['rabbitmq']],
+    ['rocketmq', ['rocketmq']],
+    ['esfs', ['esfs']]
+  ];
+  for(const [resourceType, hints] of resourceHints){
+    if(hints.some(h => low.includes(h))){
+      inferred.resourceType = resourceType;
+      break;
+    }
+  }
+
   const explicitKeyword = text.match(/(?:关键词|关键字|搜索|查找)\s*[:：]?\s*([^\n,，;；]+)/i);
   if(explicitKeyword && explicitKeyword[1]){
     inferred.keyword = explicitKeyword[1].trim().slice(0, 80);
@@ -4948,6 +4971,11 @@ function getCurrentUiFilters(){
 
 function setUiFilters(filters){
   const merged = { ...DEFAULT_SKILL_FILTERS, ...(filters || {}) };
+  skillResourceType = merged.resourceType && merged.resourceType !== 'all'
+    ? String(merged.resourceType).trim()
+    : '';
+  const expandRaw = String(merged.expandNeighbors).trim().toLowerCase();
+  skillExpandNeighbors = expandRaw === 'true' || expandRaw === '1' || expandRaw === 'yes' || expandRaw === 'on';
   const projSel = document.getElementById('proj-select');
   const project = merged.project && merged.project !== 'all' ? merged.project : 'all';
   const hasProject = project !== 'all' && Array.from(projSel.options).some(o => o.value === project);
