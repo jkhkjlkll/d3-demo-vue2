@@ -12,11 +12,7 @@
 ./runtime/mcp-input.json
 ```
 
-仓库内绝对路径：
-
-```text
-/Users/xiao/code/d3-demo-vue2/skills/ops-dashboard-skill/runtime/mcp-input.json
-```
+如果宿主确实需要绝对路径，请在运行时基于当前 skill 目录解析 `./runtime/mcp-input.json`；不要在文档或 prompt 里写死某台机器上的仓库绝对路径。
 
 如果宿主 file tool 在覆盖已有文件前要求先读取：
 - 先读取 `./runtime/mcp-input.json`

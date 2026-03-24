@@ -75,11 +75,7 @@ agent 负责从用户自然语言中抽取 MCP 参数：
 ./runtime/mcp-input.json
 ```
 
-在当前仓库中的绝对路径是：
-
-```text
-/Users/xiao/code/d3-demo-vue2/skills/ops-dashboard-skill/runtime/mcp-input.json
-```
+如果宿主确实需要绝对路径，请在运行时基于当前 skill 目录解析这个相对路径；不要在文档或 prompt 里写死某台机器上的仓库绝对路径。
 
 如果宿主 file tool 对“覆盖已有文件”有限制，请按下面处理：
 
@@ -199,7 +195,7 @@ python3 scripts/dashboard_session.py stop \
 ## 返回结果
 
 skill 执行完成后：
-- 最终回复必须包含绝对路径的 HTML 文件地址
+- 最终回复必须包含脚本真实输出里的 `htmlPath`
 - live 模式还必须包含本地 URL
 - 自动打开失败也要返回准确的 path / URL，并说明失败原因
 
