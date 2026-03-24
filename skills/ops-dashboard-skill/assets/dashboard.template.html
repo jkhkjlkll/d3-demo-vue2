@@ -1801,7 +1801,7 @@ function enterSubgraph(node){
 
   // Show breadcrumb
   document.getElementById('breadcrumb-bar').classList.add('visible');
-  document.getElementById('breadcrumb-node').textContent = `${node.entity_name} (${node.entity_type})`;
+  document.getElementById('breadcrumb-node').textContent = `${node.entity_name} (${getNodeDisplayType(node)})`;
 
   // Close drawer and render normal graph for the subgraph
   aggMode = false;
@@ -2215,6 +2215,8 @@ function buildDispView(){
   const groups = {};   // "proj::type" -> [node, ...]
   visNodes.forEach(n => {
     if(!n.project_id || n.project_id==='global') return;
+    // Keep alarm nodes and alarmed resources expanded so monitor relations stay visible.
+    if(isAlarmNode(n) || getAlarmCount(n) > 0) return;
     const key = `${n.project_id}::${n.entity_type}`;
     (groups[key] = groups[key]||[]).push(n);
   });
@@ -2443,7 +2445,8 @@ function renderGraph(){
     const baseColor = RTYPE_MAP[edge.relation_type] || '#64748b';
     const color     = baseColor;  // same color for all edges
     const markerId  = `end-${edge.relation_type.replace(/\s/g,'_')}`;
-    const isDashed  = getHealthLevel(edge) !== '正常';
+    const isMonitor = edge.relation_type === '监控';
+    const isDashed  = !isMonitor && getHealthLevel(edge) !== '正常';
 
     const snw = src._isColl ? (NODE_W+14) : src.entity_id==='U-ROOT' ? 100 : NODE_W;
     const tnw = tgt._isColl ? (NODE_W+14) : tgt.entity_id==='U-ROOT' ? 100 : NODE_W;
@@ -2466,14 +2469,14 @@ function renderGraph(){
 
     const pathEl = edgeGroup.append('path')
       .datum(edge)
-      .attr('class', `edge-path${isCross ? ' edge-cross' : ''}${denseEdges ? ' edge-thin' : ''}${enableEdgeFlow ? ' edge-flow' : ''}`)
+      .attr('class', `edge-path${isCross ? ' edge-cross' : ''}${denseEdges ? ' edge-thin' : ''}${enableEdgeFlow ? ' edge-flow' : ''}${isMonitor ? ' edge-monitor' : ''}`)
       .attr('id', `edge-${edge.relation_id}`)
       .attr('d', pathD)
       .attr('stroke', color)
-      .attr('stroke-width', denseEdges ? 1.1 : 1.5)
-      .attr('stroke-opacity', denseEdges ? (isCross ? 0.2 : 0.28) : (isCross ? 0.35 : 0.55))
+      .attr('stroke-width', isMonitor ? (denseEdges ? 1.8 : 2.4) : (denseEdges ? 1.1 : 1.5))
+      .attr('stroke-opacity', isMonitor ? 0.95 : (denseEdges ? (isCross ? 0.2 : 0.28) : (isCross ? 0.35 : 0.55)))
       .attr('marker-end', `url(#arrow-${markerId})`);
-    const dashArray = enableEdgeFlow ? (isDashed ? '5,3' : '6,3') : (isDashed ? '5,3' : '');
+    const dashArray = isMonitor ? '' : (enableEdgeFlow ? (isDashed ? '5,3' : '6,3') : (isDashed ? '5,3' : ''));
     if(dashArray){
       pathEl.attr('stroke-dasharray', dashArray);
     }
@@ -2491,7 +2494,7 @@ function renderGraph(){
       .attr('font-size', 9)
       .attr('font-family','Noto Sans SC, sans-serif')
       .attr('fill', color)
-      .attr('class', `edge-label${showEdgeLabelsByDefault ? ' edge-label-active' : ''}`)
+      .attr('class', `edge-label${showEdgeLabelsByDefault || isMonitor ? ' edge-label-active' : ''}`)
       .text(edge.relation_type);
 
     pathEl.on('click', (ev,d) => {
@@ -2500,13 +2503,13 @@ function renderGraph(){
       showEdgeDetail(d);
     });
     pathEl.on('mouseenter', () => {
-      if(edgeLabelMode === 'hover'){
+      if(edgeLabelMode === 'hover' && !isMonitor){
         labelEl.classed('edge-label-active', true);
       }
     });
     pathEl.on('mousemove', (ev,d) => showTooltip(ev, d, 'edge'));
     pathEl.on('mouseleave', () => {
-      if(edgeLabelMode === 'hover'){
+      if(edgeLabelMode === 'hover' && !isMonitor){
         labelEl.classed('edge-label-active', showEdgeLabelsByDefault);
       }
       hideTooltip();
@@ -2515,9 +2518,12 @@ function renderGraph(){
 
   // Draw normal edges, then cross-project edges on top
   const edgeGroup = g.append('g').attr('class','edges');
-  normalEdges.forEach(e => drawEdge(e, edgeGroup, false));
+  normalEdges.filter(e => e.relation_type !== '监控').forEach(e => drawEdge(e, edgeGroup, false));
   const crossEdgeGroup = g.append('g').attr('class','cross-edges');
-  crossEdges.forEach(e => drawEdge(e, crossEdgeGroup, true));
+  crossEdges.filter(e => e.relation_type !== '监控').forEach(e => drawEdge(e, crossEdgeGroup, true));
+  const monitorEdgeGroup = g.append('g').attr('class','monitor-edges');
+  normalEdges.filter(e => e.relation_type === '监控').forEach(e => drawEdge(e, monitorEdgeGroup, false));
+  crossEdges.filter(e => e.relation_type === '监控').forEach(e => drawEdge(e, monitorEdgeGroup, true));
 
   // Draw nodes (dispNodes includes virtual collapsed nodes)
   const nodeGroup = g.append('g').attr('class','nodes');
@@ -2610,7 +2616,7 @@ function renderGraph(){
 
     if(!isUser){
       const typeLabel = truncateTextByWidth(
-        node.entity_type,
+        getNodeDisplayType(node),
         Math.max(28, nw - 22),
         '8px "IBM Plex Mono", monospace'
       );
@@ -3067,11 +3073,12 @@ function showNodeDetail(node){
   };
 
   let html = '<div class="detail-section"><div class="detail-section-title">基本属性</div>';
-  const baseFields = ['entity_id','entity_name','entity_type','project_id','health_status'];
+  const baseFields = ['entity_id','entity_name','resource_type','project_id','health_status'];
   if(!isAlarmNode(node)) baseFields.push('alarm_count');
   baseFields.push('created_at','updated_at');
   baseFields.forEach(k => {
-    const v = k==='project_id' ? getProjectLabel(node, '-') : node[k];
+    let v = k==='project_id' ? getProjectLabel(node, '-') : node[k];
+    if(k==='resource_type') v = getNodeDisplayType(node);
     if(v===undefined) return;
     const hClass = k==='health_status' ? getHealthClassByStatus(node) : '';
     html += `<div class="detail-row">
@@ -3086,6 +3093,7 @@ function showNodeDetail(node){
     !baseFields.includes(k) &&
     !k.startsWith('_') &&
     FIELD_LABELS[k] &&
+    k !== 'entity_type' &&
     !(k === 'alarm_count' && isAlarmNode(node))
   );
   if(extraFields.length){
@@ -3184,7 +3192,7 @@ function showTooltip(ev, d, type){
       ? `<div class="tt-row"><span class="tt-key">节点性质</span><span class="tt-val" style="color:var(--yellow)">告警节点</span></div>`
       : `<div class="tt-row"><span class="tt-key">关联告警</span><span class="tt-val" style="color:${alarmCount>0?'var(--red)':'var(--green)'}">${alarmCount}</span></div>`;
     html = `<div class="tt-name" style="color:${color}">${d.entity_name}</div>
-      <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${d.entity_type}</span></div>
+      <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${getNodeDisplayType(d)}</span></div>
       <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${getProjectLabel(d, '-')}</span></div>
       <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>
       ${alarmRow}
@@ -3448,7 +3456,7 @@ function showAnalysis(){
     html += `<div style="margin-bottom:14px;padding:10px;background:rgba(255,64,64,0.08);border:1px solid rgba(255,64,64,0.2);border-radius:6px">
       <div style="color:var(--red);font-size:12px;margin-bottom:6px">⚠ 异常节点 (${err})</div>`;
     criticalNodes.slice(0,5).forEach(n => {
-      html += `<div style="font-size:11px;color:var(--text2);margin-bottom:3px">• ${n.entity_name} (${n.entity_type}) - ${n.project_id}</div>`;
+      html += `<div style="font-size:11px;color:var(--text2);margin-bottom:3px">• ${n.entity_name} (${getNodeDisplayType(n)}) - ${n.project_id}</div>`;
     });
     if(criticalNodes.length>5) html += `<div style="font-size:11px;color:var(--text3)">... 还有 ${criticalNodes.length-5} 个</div>`;
     html += '</div>';
@@ -3458,7 +3466,7 @@ function showAnalysis(){
     html += `<div style="margin-bottom:14px;padding:10px;background:rgba(255,204,0,0.06);border:1px solid rgba(255,204,0,0.2);border-radius:6px">
       <div style="color:var(--yellow);font-size:12px;margin-bottom:6px">⚠ 告警节点 (${warn})</div>`;
     warnNodes.slice(0,4).forEach(n => {
-      html += `<div style="font-size:11px;color:var(--text2);margin-bottom:3px">• ${n.entity_name} (${n.entity_type}) - ${n.project_id}</div>`;
+      html += `<div style="font-size:11px;color:var(--text2);margin-bottom:3px">• ${n.entity_name} (${getNodeDisplayType(n)}) - ${n.project_id}</div>`;
     });
     if(warnNodes.length>4) html += `<div style="font-size:11px;color:var(--text3)">... 还有 ${warnNodes.length-4} 个</div>`;
     html += '</div>';
@@ -3980,7 +3988,7 @@ function _renderDeployDiagram(){
     ng.append('text').attr('x',CARD_W/2+2).attr('y',CARD_H-8)
       .attr('text-anchor','middle').attr('font-size',8)
       .attr('font-family','IBM Plex Mono,monospace').attr('fill',ld.color).attr('opacity',0.65)
-      .attr('pointer-events','none').text(n.entity_type);
+      .attr('pointer-events','none').text(getNodeDisplayType(n));
     let detail='';
     if(n.internal_ip) detail=n.internal_ip;
     else if(n.host) detail=n.host;
@@ -4024,7 +4032,7 @@ function _renderDeployDiagram(){
       const hColor = getHealthColor(d, true);
       const tt=document.getElementById('tooltip');
       tt.innerHTML=`<div class="tt-name" style="color:${ld.color}">${d.entity_name}</div>
-        <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${d.entity_type}</span></div>
+        <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${getNodeDisplayType(d)}</span></div>
         <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>
         ${fields.map(f=>`<div class="tt-row"><span class="tt-val">${f}</span></div>`).join('')}`;
       tt.classList.add('visible'); moveTooltip(ev);
@@ -4353,7 +4361,7 @@ function _renderDataFlowDiagram(){
       .attr('font-family','Noto Sans SC,sans-serif').attr('fill','#cce4ff')
       .attr('pointer-events','none').text(dname);
     const typeLabel = truncateTextByWidth(
-      n.entity_type,
+      getNodeDisplayType(n),
       Math.max(28, NODE_W - 22),
       '8px "IBM Plex Mono", monospace'
     );
@@ -4367,7 +4375,7 @@ function _renderDataFlowDiagram(){
       const outRels=rels.filter(r=>r.source_entity_id===d.entity_id);
       const tt=document.getElementById('tooltip');
       tt.innerHTML=`<div class="tt-name" style="color:${td.color}">${d.entity_name}</div>
-        <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${d.entity_type}</span></div>
+        <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${getNodeDisplayType(d)}</span></div>
         <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${getProjectLabel(d, '—')}</span></div>
         <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>
         <div class="tt-row"><span class="tt-key">上游</span><span class="tt-val">${inRels.length} 条</span></div>
@@ -4525,6 +4533,14 @@ function getAlarmCount(item){
   const count = Number(item.alarm_count || 0);
   if(!Number.isFinite(count) || count <= 0) return 0;
   return Math.floor(count);
+}
+
+function getNodeDisplayType(item){
+  if(!item || typeof item !== 'object') return '-';
+  const resourceType = String(item.resource_type || '').trim();
+  if(resourceType) return resourceType;
+  const entityType = String(item.entity_type || '').trim();
+  return entityType || '-';
 }
 
 function getHealthLevel(item){
