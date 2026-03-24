@@ -382,7 +382,14 @@ def normalize_node(raw: Dict, default_project: str = "UNKNOWN") -> Dict | None:
         node_type = "alarm"
     else:
         node_type = normalize_entity_key(
-            str(raw.get("type") or raw.get("entity_type") or raw.get("resource_type") or "unknown")
+            str(
+                raw.get("entity_type")
+                or raw.get("entityType")
+                or raw.get("resource_type")
+                or raw.get("resourceType")
+                or raw.get("type")
+                or "unknown"
+            )
         )
     project = resolve_project_id(raw, default_project=default_project)
     display_name = str(raw.get("label") or raw.get("name") or raw.get("resource_id") or node_id)
@@ -424,10 +431,16 @@ def normalize_link(raw: Dict, exact_index: Dict[str, str], lowered_index: Dict[s
     target = resolve_node_reference(target_raw, exact_index, lowered_index)
     if not source or not target:
         return None
+    relation_type_raw = (
+        raw.get("relation_type")
+        or raw.get("relationType")
+        or raw.get("type")
+        or "unknown"
+    )
     return {
         "source": source,
         "target": target,
-        "type": normalize_relation_key(str(raw.get("type") or raw.get("relation_type") or "unknown")),
+        "type": normalize_relation_key(str(relation_type_raw)),
         "health": normalize_health_display(str(raw.get("health") or raw.get("health_status") or "正常")),
         "healthText": normalize_health_text(raw.get("health") or raw.get("health_status") or "正常"),
     }
@@ -472,12 +485,7 @@ def normalize_payload(payload: Dict, default_project: str = "UNKNOWN") -> Dict[s
 
     nodes = [n for n in (normalize_node(item or {}, default_project=default_project) for item in nodes_raw) if n]
     exact_index, lowered_index = build_node_reference_index(nodes)
-    links = [
-        l
-        for l in (normalize_link(item or {}, exact_index, lowered_index) for item in links_raw)
-        if l
-    ]
-    links = build_alarm_links_from_hrn(nodes, links)
+    links = [l for l in (normalize_link(item or {}, exact_index, lowered_index) for item in links_raw) if l]
     return {"nodes": nodes, "links": links}
 
 
@@ -713,49 +721,6 @@ def is_alarm_node_record(node: Dict) -> bool:
     if node_type.lower() == "alarm":
         return True
     return key_to_entity_label(node_type) == "告警" or node_type == "告警"
-
-
-def build_alarm_links_from_hrn(nodes: List[Dict], links: List[Dict]) -> List[Dict]:
-    exact_index, lowered_index = build_node_reference_index(nodes, include_alarm_nodes=False)
-    alarm_nodes: List[Dict] = []
-
-    for node in nodes:
-        node_id = str(node.get("id") or node.get("entity_id") or "").strip()
-        if not node_id:
-            continue
-        if is_alarm_node_record(node):
-            alarm_nodes.append(node)
-
-    existing_pairs = {
-        (str(link.get("source") or "").strip(), str(link.get("target") or "").strip())
-        for link in links
-        if str(link.get("source") or "").strip() and str(link.get("target") or "").strip()
-    }
-
-    derived_links = list(links)
-    for alarm in alarm_nodes:
-        alarm_id = str(alarm.get("id") or alarm.get("entity_id") or "").strip()
-        target_ref = str(alarm.get("hrn") or "").strip()
-        if not alarm_id or not target_ref:
-            continue
-        target_id = resolve_node_reference(target_ref, exact_index, lowered_index)
-        if not target_id or target_id == alarm_id:
-            continue
-        if (alarm_id, target_id) in existing_pairs or (target_id, alarm_id) in existing_pairs:
-            continue
-        existing_pairs.add((alarm_id, target_id))
-        derived_links.append(
-            {
-                "source": alarm_id,
-                "target": target_id,
-                "type": "monitor",
-                "health": "告警",
-                "healthText": "告警",
-                "derivedFrom": "alarm.hrn",
-            }
-        )
-
-    return derived_links
 
 
 def build_alarm_index(nodes: List[Dict], links: List[Dict]) -> Tuple[set[str], Dict[str, set[str]]]:
