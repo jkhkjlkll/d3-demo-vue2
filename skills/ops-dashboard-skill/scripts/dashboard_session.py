@@ -37,6 +37,11 @@ SESSION_PID_NAME = "server.pid"
 SESSION_LOG_NAME = "server.log"
 
 
+def session_log_path(session_dir: Path) -> Path:
+    session_key = hashlib.sha256(str(session_dir.resolve()).encode("utf-8")).hexdigest()[:12]
+    return Path(tempfile.gettempdir()) / f"ops-dashboard-{session_key}-{SESSION_LOG_NAME}"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Manage a live ops dashboard session")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -190,7 +195,8 @@ def terminate_pid(pid: int) -> bool:
 
 
 def start_server(session_dir: Path, port: int, idle_timeout: int) -> Tuple[int, Path]:
-    log_path = session_dir / SESSION_LOG_NAME
+    log_path = session_log_path(session_dir)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("ab") as log_fp:
         proc = subprocess.Popen(  # noqa: S603
             [
