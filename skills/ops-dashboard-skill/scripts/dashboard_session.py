@@ -245,13 +245,19 @@ def runtime_args_to_namespace(config: Dict) -> argparse.Namespace:
 
 
 def build_payload(config: Dict[str, Any], prompt: str) -> Dict[str, Any]:
+    prompt = builder.validate_runtime_prompt(prompt)
     normalized, ctx = builder.load_source_data(runtime_args_to_namespace(config))
     filters = builder.infer_filters_from_prompt(
         prompt,
         relation_types=[link.get("type", "") for link in normalized["links"]],
     )
     filtered_nodes, filtered_links = builder.apply_filters(normalized["nodes"], normalized["links"], filters)
-    summary = builder.build_summary(filtered_nodes, filtered_links)
+    summary = builder.build_summary(
+        filtered_nodes,
+        filtered_links,
+        health_nodes=normalized["nodes"],
+        health_links=normalized["links"],
+    )
     graph_data = builder.to_graph_data(normalized["nodes"], normalized["links"])
     app_config = builder.build_app_config(graph_data)
     ui_filters = builder.to_ui_filters(filters)
@@ -495,6 +501,7 @@ def command_stop(args: argparse.Namespace) -> int:
 def command_start(args: argparse.Namespace) -> int:
     session_dir = Path(args.session_dir).expanduser().resolve()
     session_dir.mkdir(parents=True, exist_ok=True)
+    args.prompt = builder.validate_runtime_prompt(args.prompt)
 
     config = {
         "input_json": str(Path(args.input_json or builder.DEFAULT_INPUT_JSON).expanduser().resolve()),
@@ -586,6 +593,11 @@ def command_update(args: argparse.Namespace) -> int:
     prompt = args.prompt or str(config.get("last_prompt", "")).strip()
     if not prompt:
         print("[ERROR] prompt is required for session update", file=sys.stderr)
+        return 2
+    try:
+        prompt = builder.validate_runtime_prompt(prompt)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ERROR] {exc}", file=sys.stderr)
         return 2
 
     try:

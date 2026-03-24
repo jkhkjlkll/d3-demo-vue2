@@ -72,7 +72,7 @@
 - 节点 ID：`nodes[].id`
 - 节点名称：`nodes[].name`
 - 节点类型：`nodes[].resource_type`
-- 节点状态：`nodes[].lifecycle_state`
+- 原始生命周期：`nodes[].lifecycle_state`
 - 项目 / 应用维度：
   - 优先使用：`nodes[].project`、`nodes[].project_id`、`nodes[].app_id`、`nodes[].appId`
   - 兜底使用：`nodes[].app_user`
@@ -93,12 +93,15 @@
 - 其他业务扩展字段
 
 特殊处理：
+- 当前接口可以视为只返回 `lifecycle_state == Active` 的资源全集
 - 当 `nodes[].resource_type = "alarm"` 时，渲染器会把它识别成 `告警` 类型节点
 - 页面上的 `告警` 数量按 alarm 节点数量统计
 - `alarm` 节点自己的 `nodes[].hrn` 表示告警自身，不用于推导资源归属
 - 告警和资源之间的关联关系只看 MCP 返回的 `relations`
-- 如果某个普通资源在 `relations` 里和 alarm 节点有连接，页面会把该资源标成红色异常
-- 如果普通资源没有关联任何 alarm 节点，则显示为绿色正常
+- 如果某个普通资源在 `relations` 里和 alarm 节点有连接，页面会把该资源标成 `告警`
+- 如果普通资源没有关联任何 alarm 节点，则显示为 `正常`
+- `nodes[].lifecycle_state`、`nodes[].health`、`nodes[].health_status` 都不参与页面 health 推导
+- `alarm` 节点本身不显示 health
 
 ## 关系字段映射
 
@@ -118,15 +121,17 @@
 
 `result[]` 当前会被忽略。
 
-## 生命周期状态展示
+关系输出兼容字段：
+- `relations[*].health_status`
+- `relations[*].health_level`
+- `relations[*].health_text`
 
-页面展示时会保留 MCP 返回的原始状态文本。
+这些字段当前统一留空，只为兼容旧消费方，不再表示关系健康状态。
 
-例如：
-- `Active` 页面就显示 `Active`
-- `Recycle` 页面就显示 `Recycle`
+## 生命周期属性展示
 
-内部为了做颜色、筛选和统计，仍然可能把这些值归一化成 `正常 / 告警 / 异常`，但展示文本不会被改写。
+- 页面可以保留 MCP 返回的 `lifecycle_state` 原始文本作为扩展属性
+- 该字段不参与颜色、筛选、统计或资源 health 的任何推导
 
 ## Prompt 职责边界
 
@@ -137,7 +142,7 @@
   - `resourceType`
 - 渲染器只把 prompt 用于展示层筛选：
   - `relationType`
-  - `health`
+  - `health`（仅 `正常 / 告警`）
   - `keyword`
   - `expandNeighbors`
 

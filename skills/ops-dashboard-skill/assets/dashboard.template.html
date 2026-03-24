@@ -737,8 +737,8 @@ select option { background: var(--panel2); color: var(--text); }
     <span class="badge badge-green" id="hb-status">实时同步</span>
     <span class="badge badge-blue" id="hb-nodes">节点 0</span>
     <span class="badge badge-blue" id="hb-edges">关系 0</span>
-    <span class="badge badge-yellow" id="hb-warn" style="display:none">告警 0</span>
-    <span class="badge badge-red" id="hb-err" style="display:none">异常 0</span>
+    <span class="badge badge-yellow" id="hb-warn" style="display:none">告警资源 0</span>
+    <span class="badge badge-red" id="hb-alarms" style="display:none">告警节点 0</span>
   </div>
 </div>
 
@@ -769,7 +769,6 @@ select option { background: var(--panel2); color: var(--text); }
       <option value="all">全部状态</option>
       <option value="正常">✓ 正常</option>
       <option value="告警">⚠ 告警</option>
-      <option value="异常">✗ 异常</option>
     </select>
   </div>
   <div class="tb-sep"></div>
@@ -846,8 +845,8 @@ select option { background: var(--panel2); color: var(--text); }
         <span class="stat-val" style="color:var(--yellow)" id="st-warn">0</span>
       </div>
       <div class="stat-item">
-        <span class="stat-label">异常</span>
-        <span class="stat-val" style="color:var(--red)" id="st-err">0</span>
+        <span class="stat-label">告警节点</span>
+        <span class="stat-val" style="color:var(--red)" id="st-alarms">0</span>
       </div>
     </div>
 
@@ -902,7 +901,7 @@ select option { background: var(--panel2); color: var(--text); }
   <div class="sb-item">项目 <span class="sb-val" id="sb-p">0</span></div>
   <div class="sb-item">正常 <span class="sb-val" style="color:var(--green)" id="sb-ok">0</span></div>
   <div class="sb-item">告警 <span class="sb-val" style="color:var(--yellow)" id="sb-wa">0</span></div>
-  <div class="sb-item">异常 <span class="sb-val" style="color:var(--red)" id="sb-er">0</span></div>
+  <div class="sb-item">告警节点 <span class="sb-val" style="color:var(--red)" id="sb-al">0</span></div>
   <div class="sb-spacer"></div>
   <div class="sb-item sb-time" id="sb-time">--</div>
 </div>
@@ -973,8 +972,8 @@ select option { background: var(--panel2); color: var(--text); }
 //  ║    entity_name      显示名称                             ║
 //  ║    entity_type      类型（见 ETYPE_CONFIG）              ║
 //  ║    project_id       所属项目（global=全局节点）          ║
-//  ║    health_status    原始状态文本（展示用）               ║
-//  ║    health_level     正常 | 告警 | 异常（逻辑用，推荐）    ║
+//  ║    health_status    健康状态文本（资源两态；alarm为空）   ║
+//  ║    health_level     正常 | 告警（资源两态；alarm为空）    ║
 //  ║    created_at       创建时间                             ║
 //  ║    updated_at       更新时间                             ║
 //  ║                                                          ║
@@ -983,8 +982,8 @@ select option { background: var(--panel2); color: var(--text); }
 //  ║    relation_type    类型（见 RTYPE_CONFIG）              ║
 //  ║    source_entity_id 源端 entity_id                       ║
 //  ║    target_entity_id 目标端 entity_id                     ║
-//  ║    health_status    原始状态文本（展示用）               ║
-//  ║    health_level     正常 | 告警 | 异常（逻辑用，推荐）    ║
+//  ║    health_status    兼容字段，当前固定留空               ║
+//  ║    health_level     兼容字段，当前固定留空               ║
 //  ║    created_at       创建时间                             ║
 //  ║    updated_at       更新时间                             ║
 //  ╚══════════════════════════════════════════════════════════╝
@@ -1006,7 +1005,7 @@ let GRAPH_DATA = __GRAPH_DATA_JSON__;
 //                  顺序即图谱从左到右的层次顺序
 //    relationTypes → 关系边类型及颜色（对应 GRAPH_DATA.relations[].relation_type）
 //    layout     → 节点尺寸、间距、行带间隔等布局参数（单位：像素）
-//    healthStates → 健康状态随机刷新时的权重池（正常概率更高）
+//    healthStates → 可用健康状态列表（资源仅 正常 / 告警）
 // ============================================================
 
 let APP_CONFIG = __APP_CONFIG_JSON__;
@@ -1073,7 +1072,7 @@ function rebuildRuntimeConfig(){
   ETYPE_CONFIG = safeEntityTypes;
   RTYPE_CONFIG = safeRelationTypes;
   LAYER_ORDER = safeEntityTypes.map(e => e.type);
-  HEALTH_LIST = Array.isArray(safeConfig.healthStates) && safeConfig.healthStates.length ? safeConfig.healthStates : ['正常', '告警', '异常'];
+  HEALTH_LIST = Array.isArray(safeConfig.healthStates) && safeConfig.healthStates.length ? safeConfig.healthStates : ['正常', '告警'];
   ETYPE_MAP = Object.fromEntries(ETYPE_CONFIG.map(e => [e.type, e.color]));
   RTYPE_MAP = Object.fromEntries(RTYPE_CONFIG.map(r => [r.type, r.color]));
   NODE_W = layout.nodeWidth || 118;
@@ -1191,6 +1190,366 @@ function getProjectLabel(item, fallback='-'){
   return cfg ? (cfg.name || key) : key;
 }
 
+function getTypeOrderIndex(type){
+  const idx = LAYER_ORDER.indexOf(type);
+  return idx >= 0 ? idx : 999;
+}
+
+function compareTypeOrder(a, b){
+  const ia = getTypeOrderIndex(a);
+  const ib = getTypeOrderIndex(b);
+  if(ia !== ib) return ia - ib;
+  return String(a || '').localeCompare(String(b || ''), 'zh-CN');
+}
+
+function clearActiveSelections(){
+  document.querySelectorAll('.entity-row.active, .drawer-entity-row.active')
+    .forEach(el => el.classList.remove('active'));
+}
+
+function resetGraphInteractionState(){
+  clearHighlight();
+  closeDetail();
+  hideTooltip();
+  hideCtxMenu();
+  clearActiveSelections();
+  ctxTargetNode = null;
+  focusedNode = null;
+}
+
+function getNormalNodeSize(node){
+  if(node && node._isColl) return { width: NODE_W + 14, height: NODE_H + 14 };
+  if(node && node.entity_id === 'U-ROOT') return { width: 100, height: 38 };
+  return { width: NODE_W, height: NODE_H };
+}
+
+function buildFlowCurveGeometry(sx, sy, tx, ty, laneOffset = 0, opts = {}){
+  const labelLift = Number(opts.labelLift || 8);
+  const minCp = Number(opts.minCp || 42);
+  const loopPad = Number(opts.loopPad || 68);
+  const lanePull = laneOffset * 0.8;
+  if(tx >= sx + 20){
+    const cp = Math.max(minCp, (tx - sx) * 0.45);
+    return {
+      path: `M${sx},${sy} C${sx + cp},${sy + lanePull} ${tx - cp},${ty + lanePull} ${tx},${ty}`,
+      labelX: (sx + tx) / 2,
+      labelY: (sy + ty) / 2 - labelLift + lanePull * 0.35,
+      forward: true
+    };
+  }
+  const bendX = Math.max(sx, tx) + Math.max(loopPad, Math.abs(tx - sx) * 0.6 + 36);
+  return {
+    path: `M${sx},${sy} C${bendX},${sy + lanePull} ${bendX},${ty + lanePull} ${tx},${ty}`,
+    labelX: bendX - 18,
+    labelY: (sy + ty) / 2 - labelLift * 0.35 + lanePull * 0.45,
+    forward: false
+  };
+}
+
+function computeStronglyConnectedComponents(keys, outMap){
+  let index = 0;
+  const stack = [];
+  const onStack = new Set();
+  const indices = {};
+  const lowLink = {};
+  const components = [];
+
+  function strongConnect(nodeId){
+    indices[nodeId] = index;
+    lowLink[nodeId] = index;
+    index += 1;
+    stack.push(nodeId);
+    onStack.add(nodeId);
+
+    (outMap[nodeId] || []).forEach(nextId => {
+      if(indices[nextId] === undefined){
+        strongConnect(nextId);
+        lowLink[nodeId] = Math.min(lowLink[nodeId], lowLink[nextId]);
+      } else if(onStack.has(nextId)){
+        lowLink[nodeId] = Math.min(lowLink[nodeId], indices[nextId]);
+      }
+    });
+
+    if(lowLink[nodeId] === indices[nodeId]){
+      const component = [];
+      while(stack.length){
+        const popped = stack.pop();
+        onStack.delete(popped);
+        component.push(popped);
+        if(popped === nodeId) break;
+      }
+      components.push(component);
+    }
+  }
+
+  keys.forEach(nodeId => {
+    if(indices[nodeId] === undefined){
+      strongConnect(nodeId);
+    }
+  });
+  return components;
+}
+
+function buildTypeColumnPlan(typeList, weightedEdges = {}){
+  const types = Array.from(new Set((typeList || []).filter(Boolean)));
+  types.sort(compareTypeOrder);
+  if(!types.length){
+    return { orderedTypes: [], typeIndex: {} };
+  }
+
+  const outMap = {};
+  const reverseMap = {};
+  types.forEach(type => {
+    outMap[type] = new Set();
+    reverseMap[type] = new Set();
+  });
+
+  types.forEach(srcType => {
+    Object.entries(weightedEdges[srcType] || {}).forEach(([tgtType, rawCount]) => {
+      const count = Number(rawCount || 0);
+      if(count <= 0 || !outMap[srcType] || !outMap[tgtType] || srcType === tgtType) return;
+      outMap[srcType].add(tgtType);
+      reverseMap[tgtType].add(srcType);
+    });
+  });
+
+  const components = computeStronglyConnectedComponents(types, outMap);
+  const componentByType = {};
+  components.forEach((compTypes, compId) => {
+    compTypes.forEach(type => { componentByType[type] = compId; });
+  });
+
+  const compOut = {};
+  const compIn = {};
+  const compInDegree = {};
+  const compMeta = {};
+  components.forEach((compTypes, compId) => {
+    compOut[compId] = new Set();
+    compIn[compId] = new Set();
+    compInDegree[compId] = 0;
+    compMeta[compId] = { id: compId, types: compTypes.slice() };
+  });
+
+  const compEdgeWeights = {};
+  types.forEach(srcType => {
+    Object.entries(weightedEdges[srcType] || {}).forEach(([tgtType, rawCount]) => {
+      const count = Number(rawCount || 0);
+      const srcComp = componentByType[srcType];
+      const tgtComp = componentByType[tgtType];
+      if(count <= 0 || srcComp === undefined || tgtComp === undefined || srcComp === tgtComp) return;
+      compEdgeWeights[srcComp] = compEdgeWeights[srcComp] || {};
+      if(!compEdgeWeights[srcComp][tgtComp]){
+        compEdgeWeights[srcComp][tgtComp] = 0;
+        if(!compOut[srcComp].has(tgtComp)){
+          compOut[srcComp].add(tgtComp);
+          compIn[tgtComp].add(srcComp);
+          compInDegree[tgtComp] += 1;
+        }
+      }
+      compEdgeWeights[srcComp][tgtComp] += count;
+    });
+  });
+
+  function compareComponentMeta(aId, bId){
+    const aTypes = compMeta[aId].types.slice().sort(compareTypeOrder);
+    const bTypes = compMeta[bId].types.slice().sort(compareTypeOrder);
+    const rankDiff = compareTypeOrder(aTypes[0], bTypes[0]);
+    if(rankDiff !== 0) return rankDiff;
+    return aTypes.join('|').localeCompare(bTypes.join('|'), 'zh-CN');
+  }
+
+  Object.values(compMeta).forEach(meta => {
+    if(meta.types.length <= 1){
+      meta.types.sort(compareTypeOrder);
+      return;
+    }
+    const scoreCache = {};
+    function typeScore(type){
+      if(scoreCache[type] !== undefined) return scoreCache[type];
+      let out = 0;
+      let incoming = 0;
+      meta.types.forEach(otherType => {
+        if(otherType === type) return;
+        out += Number((weightedEdges[type] || {})[otherType] || 0);
+        incoming += Number((weightedEdges[otherType] || {})[type] || 0);
+      });
+      scoreCache[type] = out - incoming;
+      return scoreCache[type];
+    }
+    meta.types.sort((aType, bType) => {
+      const aScore = typeScore(aType);
+      const bScore = typeScore(bType);
+      if(aScore !== bScore) return bScore - aScore;
+      return compareTypeOrder(aType, bType);
+    });
+  });
+
+  const indegree = { ...compInDegree };
+  const queue = Object.keys(compMeta)
+    .map(Number)
+    .filter(compId => indegree[compId] === 0)
+    .sort(compareComponentMeta);
+  const topo = [];
+  while(queue.length){
+    const compId = queue.shift();
+    topo.push(compId);
+    Array.from(compOut[compId] || []).sort(compareComponentMeta).forEach(nextId => {
+      indegree[nextId] -= 1;
+      if(indegree[nextId] === 0){
+        queue.push(nextId);
+        queue.sort(compareComponentMeta);
+      }
+    });
+  }
+  Object.keys(compMeta).map(Number).sort(compareComponentMeta).forEach(compId => {
+    if(!topo.includes(compId)) topo.push(compId);
+  });
+
+  const layerByComp = {};
+  Object.keys(compMeta).forEach(compId => { layerByComp[compId] = 0; });
+  topo.forEach(compId => {
+    Array.from(compOut[compId] || []).forEach(nextId => {
+      layerByComp[nextId] = Math.max(layerByComp[nextId] || 0, (layerByComp[compId] || 0) + 1);
+    });
+  });
+
+  const compOrderIndex = {};
+  const orderedCompIds = [];
+  const layerIds = Array.from(new Set(Object.values(layerByComp).map(Number))).sort((a, b) => a - b);
+  const reverseCompWeights = {};
+  Object.entries(compEdgeWeights).forEach(([srcComp, targets]) => {
+    Object.entries(targets || {}).forEach(([tgtComp, count]) => {
+      reverseCompWeights[tgtComp] = reverseCompWeights[tgtComp] || {};
+      reverseCompWeights[tgtComp][srcComp] = Number(count || 0);
+    });
+  });
+
+  layerIds.forEach(layerId => {
+    const compsInLayer = Object.keys(compMeta)
+      .map(Number)
+      .filter(compId => Number(layerByComp[compId] || 0) === Number(layerId));
+    compsInLayer.sort((aId, bId) => {
+      const predA = Object.entries(reverseCompWeights[aId] || {})
+        .filter(([predId]) => compOrderIndex[predId] !== undefined);
+      const predB = Object.entries(reverseCompWeights[bId] || {})
+        .filter(([predId]) => compOrderIndex[predId] !== undefined);
+      const scoreA = predA.length
+        ? predA.reduce((sum, [predId, count]) => sum + compOrderIndex[predId] * Number(count || 0), 0) /
+          predA.reduce((sum, [, count]) => sum + Number(count || 0), 0)
+        : null;
+      const scoreB = predB.length
+        ? predB.reduce((sum, [predId, count]) => sum + compOrderIndex[predId] * Number(count || 0), 0) /
+          predB.reduce((sum, [, count]) => sum + Number(count || 0), 0)
+        : null;
+      if(scoreA !== null || scoreB !== null){
+        if(scoreA === null) return 1;
+        if(scoreB === null) return -1;
+        if(scoreA !== scoreB) return scoreA - scoreB;
+      }
+      return compareComponentMeta(aId, bId);
+    });
+    compsInLayer.forEach((compId, idx) => {
+      compOrderIndex[compId] = orderedCompIds.length + idx;
+    });
+    orderedCompIds.push(...compsInLayer);
+  });
+
+  const orderedTypes = [];
+  orderedCompIds.forEach(compId => {
+    orderedTypes.push(...compMeta[compId].types);
+  });
+
+  return {
+    orderedTypes,
+    typeIndex: Object.fromEntries(orderedTypes.map((type, idx) => [type, idx]))
+  };
+}
+
+function orderNodesByTypeColumns(orderedTypes, nodesByType, edges, nodeTypeIndex){
+  const typeIndex = nodeTypeIndex || Object.fromEntries(orderedTypes.map((type, idx) => [type, idx]));
+  const neighborMap = {};
+  const nodeLookup = {};
+
+  orderedTypes.forEach(type => {
+    (nodesByType[type] || []).forEach(node => {
+      neighborMap[node.entity_id] = neighborMap[node.entity_id] || new Set();
+      nodeLookup[node.entity_id] = node;
+    });
+  });
+
+  (edges || []).forEach(edge => {
+    const src = edge.source_entity_id;
+    const tgt = edge.target_entity_id;
+    if(!neighborMap[src] || !neighborMap[tgt]) return;
+    neighborMap[src].add(tgt);
+    neighborMap[tgt].add(src);
+  });
+
+  function baseNodeCompare(aNode, bNode){
+    const aProj = getProjectKey(aNode);
+    const bProj = getProjectKey(bNode);
+    if(aProj !== bProj) return aProj.localeCompare(bProj, 'zh-CN');
+    const aName = String(aNode.entity_name || '');
+    const bName = String(bNode.entity_name || '');
+    const nameDiff = aName.localeCompare(bName, 'zh-CN');
+    if(nameDiff !== 0) return nameDiff;
+    return String(aNode.entity_id || '').localeCompare(String(bNode.entity_id || ''), 'zh-CN');
+  }
+
+  const rankMap = {};
+  orderedTypes.forEach(type => {
+    (nodesByType[type] || []).sort(baseNodeCompare);
+    (nodesByType[type] || []).forEach((node, idx) => { rankMap[node.entity_id] = idx; });
+  });
+
+  function baryScore(node, direction){
+    const currentType = String(node.entity_type || '');
+    const currentColumn = typeIndex[currentType];
+    const neighbors = Array.from(neighborMap[node.entity_id] || []);
+    const relevant = neighbors.filter(otherId => {
+      const other = nodeLookup[otherId];
+      if(!other) return false;
+      const otherColumn = typeIndex[String(other.entity_type || '')];
+      if(otherColumn === undefined || currentColumn === undefined) return false;
+      return direction === 'left' ? otherColumn < currentColumn : otherColumn > currentColumn;
+    });
+    if(!relevant.length) return null;
+    return relevant.reduce((sum, otherId) => sum + Number(rankMap[otherId] || 0), 0) / relevant.length;
+  }
+
+  for(let iter = 0; iter < 4; iter++){
+    orderedTypes.forEach(type => {
+      (nodesByType[type] || []).sort((aNode, bNode) => {
+        const aScore = baryScore(aNode, 'left');
+        const bScore = baryScore(bNode, 'left');
+        if(aScore !== null || bScore !== null){
+          if(aScore === null) return 1;
+          if(bScore === null) return -1;
+          if(aScore !== bScore) return aScore - bScore;
+        }
+        return baseNodeCompare(aNode, bNode);
+      });
+      (nodesByType[type] || []).forEach((node, idx) => { rankMap[node.entity_id] = idx; });
+    });
+
+    orderedTypes.slice().reverse().forEach(type => {
+      (nodesByType[type] || []).sort((aNode, bNode) => {
+        const aScore = baryScore(aNode, 'right');
+        const bScore = baryScore(bNode, 'right');
+        if(aScore !== null || bScore !== null){
+          if(aScore === null) return 1;
+          if(bScore === null) return -1;
+          if(aScore !== bScore) return aScore - bScore;
+        }
+        return baseNodeCompare(aNode, bNode);
+      });
+      (nodesByType[type] || []).forEach((node, idx) => { rankMap[node.entity_id] = idx; });
+    });
+  }
+
+  return nodesByType;
+}
+
 // ── 运行时state ─────────────────────────────────────────────────────────────
 let rawData = cloneJson(normalizeGraphDataShape(GRAPH_DATA)); // deep copy; live updates rewrite this
 
@@ -1230,10 +1589,12 @@ function collapseAllGroups(){
 }
 
 function toggleAggMode(){
+  resetGraphInteractionState();
   aggMode = !aggMode;
   subgraphNode = null;
   savedVisNodes = null;
   savedVisEdges = null;
+  ctxTargetNode = null;
   document.getElementById('entity-drawer').classList.remove('open');
   document.getElementById('breadcrumb-bar').classList.remove('visible');
   document.body.classList.toggle('agg-mode-active', aggMode);
@@ -1247,17 +1608,20 @@ function toggleAggMode(){
 // aggEdges: one virtual edge per (srcType, tgtType, relation_type) triple, with count
 function buildAggregateGraph(){
   // 1. Build aggNodes
-  const typeMap = {};  // type -> { entityType, color, nodes[], ok, warn, err }
+  const typeMap = {};  // type -> { entityType, color, nodes[], ok, warn, alarmNodes }
   visNodes.forEach(n => {
     const t = n.entity_type || '未知';
     if(!typeMap[t]){
-      typeMap[t] = { entityType: t, color: ETYPE_MAP[t]||'#64748b', nodes: [], ok:0, warn:0, err:0 };
+      typeMap[t] = { entityType: t, color: ETYPE_MAP[t]||'#64748b', nodes: [], ok:0, warn:0, alarmNodes:0 };
     }
     typeMap[t].nodes.push(n);
+    if(isAlarmNode(n)){
+      typeMap[t].alarmNodes++;
+      return;
+    }
     const level = getHealthLevel(n);
     if(level==='正常')      typeMap[t].ok++;
     else if(level==='告警') typeMap[t].warn++;
-    else                    typeMap[t].err++;
   });
 
   const aggNodes = Object.values(typeMap).map(t => ({
@@ -1266,7 +1630,7 @@ function buildAggregateGraph(){
     color:        t.color,
     nodes:        t.nodes,
     count:        t.nodes.length,
-    ok:           t.ok, warn: t.warn, err: t.err,
+    ok:           t.ok, warn: t.warn, alarmNodes: t.alarmNodes,
     _x: undefined, _y: undefined,
   }));
 
@@ -1327,14 +1691,15 @@ function renderAggregateGraph(){
   const W = wrap.clientWidth, H = wrap.clientHeight;
 
   const { aggNodes, aggEdges } = buildAggregateGraph();
-
-  // ── Layout: DAG layered layout (arrows flow left → right) ──────────────
-  // 1. Build directed adjacency from aggEdges
-  // 2. Assign each node a "column" (layer) via longest-path / topological sort
-  // 3. Spread nodes within each column vertically
-
+  window._dispNodes = aggNodes;
+  window._dispEdges = aggEdges;
   const aggCount = aggNodes.length;
   const aggEdgeCount = aggEdges.length;
+  if(!aggCount){
+    refreshMinimap();
+    return;
+  }
+
   const aggScale = (() => {
     let scale = 1;
     if(aggCount <= 4) scale = 1.85;
@@ -1348,80 +1713,28 @@ function renderAggregateGraph(){
   })();
 
   const AGG_W = 140, AGG_H = 64;
-  const AGG_COL_SPAN = Math.round(220 * aggScale);   // horizontal gap between columns
-  const AGG_ROW_SPAN = Math.round(110 * aggScale);   // vertical gap between nodes in same column
+  const AGG_COL_SPAN = Math.round(Math.max(AGG_W + 96, 220 * aggScale));
   const AGG_EDGE_DENSE = aggEdgeCount > 8;
-
-  // -- Step 1: build in/out degree maps from aggEdges (before they're drawn) --
-  const outEdges = {};   // srcType -> [tgtType, ...]
-  const inDegree = {};   // type -> count
-  aggNodes.forEach(an => { outEdges[an.entityType] = []; inDegree[an.entityType] = 0; });
+  const aggNodeById = Object.fromEntries(aggNodes.map(an => [an.entityType, an]));
+  const aggTypeWeights = {};
   aggEdges.forEach(ae => {
-    if(outEdges[ae.srcType]) outEdges[ae.srcType].push(ae.tgtType);
-    if(inDegree[ae.tgtType] !== undefined) inDegree[ae.tgtType]++;
+    aggTypeWeights[ae.srcType] = aggTypeWeights[ae.srcType] || {};
+    aggTypeWeights[ae.srcType][ae.tgtType] = (aggTypeWeights[ae.srcType][ae.tgtType] || 0) + Number(ae.count || 1);
   });
+  const aggPlan = buildTypeColumnPlan(aggNodes.map(an => an.entityType), aggTypeWeights);
+  const orderedTypes = aggPlan.orderedTypes.length ? aggPlan.orderedTypes : aggNodes.map(an => an.entityType).sort(compareTypeOrder);
+  const totalSpan = (orderedTypes.length - 1) * AGG_COL_SPAN;
+  const startX = orderedTypes.length === 1
+    ? W / 2
+    : Math.max(AGG_W / 2 + 32, W / 2 - totalSpan / 2);
+  const centerY = Math.max(CANVAS_TOP + AGG_H / 2 + 18, H / 2);
 
-  // -- Step 2: Kahn's algorithm for topological order → assign layers --
-  const layer = {};
-  const queue = aggNodes.map(an => an.entityType).filter(t => inDegree[t] === 0);
-  // Nodes not in any edge get placed in layer 0 too
-  aggNodes.forEach(an => { if(layer[an.entityType] === undefined) layer[an.entityType] = 0; });
-  queue.forEach(t => { layer[t] = 0; });
-
-  // BFS-style layering: layer[v] = max(layer[u]+1) for all u->v
-  // Use the LAYER_ORDER as tiebreaker seed
-  const sorted = aggNodes.map(an => an.entityType);
-  sorted.sort((a,b) => {
-    const ia = LAYER_ORDER.indexOf(a), ib = LAYER_ORDER.indexOf(b);
-    return (ia<0?99:ia) - (ib<0?99:ib);
+  orderedTypes.forEach((type, idx) => {
+    const node = aggNodeById[type];
+    if(!node) return;
+    node._x = startX + idx * AGG_COL_SPAN;
+    node._y = centerY;
   });
-  // Forward pass: assign layer = max predecessor layer + 1
-  sorted.forEach(t => {
-    if(layer[t] === undefined) layer[t] = 0;
-    (outEdges[t]||[]).forEach(tgt => {
-      if(layer[tgt] === undefined) layer[tgt] = 0;
-      if(layer[tgt] <= layer[t]) layer[tgt] = layer[t] + 1;
-    });
-  });
-  // Second pass for any remaining unassigned
-  aggNodes.forEach(an => { if(layer[an.entityType] === undefined) layer[an.entityType] = 0; });
-
-  // -- Step 3: group nodes by layer, then assign x/y ----------------------
-  const byLayer = {};
-  aggNodes.forEach(an => {
-    const l = layer[an.entityType] || 0;
-    if(!byLayer[l]) byLayer[l] = [];
-    byLayer[l].push(an);
-  });
-
-  // Sort within each layer by LAYER_ORDER for consistent vertical ordering
-  Object.values(byLayer).forEach(col => {
-    col.sort((a,b) => {
-      const ia = LAYER_ORDER.indexOf(a.entityType);
-      const ib = LAYER_ORDER.indexOf(b.entityType);
-      return (ia<0?99:ia) - (ib<0?99:ib);
-    });
-  });
-
-  // Compute canvas height needed and centre vertically
-  const maxColSize = Math.max(...Object.values(byLayer).map(c => c.length), 1);
-  const numLayers  = Math.max(...Object.keys(byLayer).map(Number)) + 1;
-  const totalH     = maxColSize * (AGG_H + AGG_ROW_SPAN) - AGG_ROW_SPAN;
-  const startY     = Math.max(CANVAS_TOP + AGG_H/2 + 20, (H - totalH) / 2 + AGG_H/2);
-
-  Object.entries(byLayer).forEach(([lStr, nodes]) => {
-    const l = Number(lStr);
-    const colH = nodes.length * (AGG_H + AGG_ROW_SPAN) - AGG_ROW_SPAN;
-    const colStartY = startY + (totalH - colH) / 2;   // centre short columns
-    nodes.forEach((an, i) => {
-      an._x = MARGIN_L + AGG_W/2 + l * AGG_COL_SPAN;
-      an._y = colStartY + i * (AGG_H + AGG_ROW_SPAN) + AGG_H/2;
-    });
-  });
-
-  // Build lookup
-  const aggNodeById = {};
-  aggNodes.forEach(an => { aggNodeById[an.entityType] = an; });
 
   // ── Draw aggregate edges ─────────────────────────────────────────────────
   // Add agg-specific arrow markers
@@ -1436,47 +1749,32 @@ function renderAggregateGraph(){
     }
   });
 
-  // ── Helper: bezier path between two agg nodes (handles any direction) ──
-  function aggEdgePath(sn, tn){
-    const forward = sn._x <= tn._x;
-    if(forward){
-      // Normal left→right: exit right edge, enter left edge
-      const sx = sn._x + AGG_W/2, sy = sn._y;
-      const tx = tn._x - AGG_W/2, ty = tn._y;
-      const cp = Math.max(50, Math.abs(tx - sx) * 0.45);
-      return `M${sx},${sy} C${sx+cp},${sy} ${tx-cp},${ty} ${tx},${ty}`;
-    } else {
-      // Back edge (right→left): arc over the top via bottom of nodes
-      const sx = sn._x - AGG_W/2, sy = sn._y + AGG_H/2;
-      const tx = tn._x + AGG_W/2, ty = tn._y + AGG_H/2;
-      const midX = (sx + tx) / 2;
-      const bow  = Math.abs(sy - ty) * 0.5 + 60;
-      return `M${sx},${sy} C${sx},${sy+bow} ${tx},${ty+bow} ${tx},${ty}`;
-    }
-  }
-
-  // ── Helper: pill label position (midpoint offset for readability) ───────
-  function aggPillPos(sn, tn){
-    const mx = (sn._x + tn._x) / 2;
-    const my = (sn._y + tn._y) / 2;
-    // For back-edges arc downward, offset pill below the midpoint
-    const forward = sn._x <= tn._x;
-    return { x: mx, y: forward ? my - 12 : my + 48 };
+  function aggEdgeGeometry(ae){
+    const sn = aggNodeById[ae.srcType];
+    const tn = aggNodeById[ae.tgtType];
+    if(!sn || !tn) return null;
+    return buildFlowCurveGeometry(
+      sn._x + AGG_W / 2,
+      sn._y,
+      tn._x - AGG_W / 2,
+      tn._y,
+      0,
+      { labelLift: 13, minCp: 56, loopPad: 96 }
+    );
   }
 
   // ── Draw edges ───────────────────────────────────────────────────────────
   const edgeGrp = g.append('g').attr('class','agg-edges');
   aggEdges.forEach(ae => {
-    const sn = aggNodeById[ae.srcType];
-    const tn = aggNodeById[ae.tgtType];
-    if(!sn || !tn) return;
+    const geo = aggEdgeGeometry(ae);
+    if(!geo) return;
 
     // Use dominant color for the line; stroke-width scales with total count
     const pathEl = edgeGrp.append('path')
       .datum(ae)
       .attr('id', `agg-path-${ae._aggRelId.replace(/[^a-z0-9]/gi,'_')}`)
       .attr('class','edge-path')
-      .attr('d', aggEdgePath(sn, tn))
+      .attr('d', geo.path)
       .attr('stroke', ae.color)
       .attr('stroke-width', 1.2)
       .attr('stroke-opacity', AGG_EDGE_DENSE ? 0.2 : 0.55)
@@ -1496,11 +1794,10 @@ function renderAggregateGraph(){
       .on('mouseleave', hideTooltip);
 
     // ── Pill: stack one tag per relation type ─────────────────────────────
-    const pos = aggPillPos(sn, tn);
     const pill = edgeGrp.append('g')
       .datum(ae)
       .attr('class','agg-edge-pill')
-      .attr('transform', `translate(${pos.x},${pos.y})`);
+      .attr('transform', `translate(${geo.labelX},${geo.labelY})`);
 
     const relTypes = Object.entries(ae.byRelType)
       .sort((a,b) => b[1].count - a[1].count);   // most common first
@@ -1539,16 +1836,15 @@ function renderAggregateGraph(){
   function refreshAggEdges(movedType){
     edgeGrp.selectAll('path.edge-path').each(function(ae){
       if(ae.srcType !== movedType && ae.tgtType !== movedType) return;
-      const sn = aggNodeById[ae.srcType], tn = aggNodeById[ae.tgtType];
-      if(!sn || !tn) return;
-      d3.select(this).attr('d', aggEdgePath(sn, tn));
+      const geo = aggEdgeGeometry(ae);
+      if(!geo) return;
+      d3.select(this).attr('d', geo.path);
     });
     edgeGrp.selectAll('g.agg-edge-pill').each(function(ae){
       if(ae.srcType !== movedType && ae.tgtType !== movedType) return;
-      const sn = aggNodeById[ae.srcType], tn = aggNodeById[ae.tgtType];
-      if(!sn || !tn) return;
-      const pos = aggPillPos(sn, tn);
-      d3.select(this).attr('transform', `translate(${pos.x},${pos.y})`);
+      const geo = aggEdgeGeometry(ae);
+      if(!geo) return;
+      d3.select(this).attr('transform', `translate(${geo.labelX},${geo.labelY})`);
     });
   }
 
@@ -1594,7 +1890,7 @@ function renderAggregateGraph(){
     // Health mini-bar
     const barX = AGG_W-14, barH = AGG_H-16, barY = 8, total = an.count||1;
     let yOff = barY;
-    [['ok',an.ok,'#00d68f'],['warn',an.warn,'#ffcc00'],['err',an.err,'#ff4040']].forEach(([,v,col])=>{
+    [['ok',an.ok,'#00d68f'],['warn',an.warn,'#ffcc00']].forEach(([,v,col])=>{
       if(!v) return;
       const h = Math.max(3, barH*v/total);
       ng.append('rect').attr('x',barX).attr('y',yOff).attr('width',5).attr('height',h)
@@ -1632,12 +1928,13 @@ function renderAggregateGraph(){
     });
     ng.on('mouseenter', () => setAggFocus(an.entityType));
     ng.on('mousemove', (ev,d) => {
+      const alarmNodeText = d.alarmNodes ? `<span style="color:var(--red)">告警节点 ${d.alarmNodes}</span>` : '';
       showRawTooltip(ev,
         `<b style="color:${d.color}">${d.entityType}</b><br>` +
         `实体数量: <b>${d.count}</b><br>` +
         `<span style="color:var(--green)">正常 ${d.ok}</span>  ` +
-        `<span style="color:var(--yellow)">告警 ${d.warn}</span>  ` +
-        `<span style="color:var(--red)">异常 ${d.err}</span>`);
+        `<span style="color:var(--yellow)">告警 ${d.warn}</span>` +
+        (alarmNodeText ? `  ${alarmNodeText}` : ''));
     });
     ng.on('mouseleave', () => {
       hideTooltip();
@@ -1695,10 +1992,8 @@ function showAggEdgeDetail(ae){
     rv.rels.slice(0,5).forEach(r => {
       const sn = rawData.nodes.find(n=>n.entity_id===r.source_entity_id);
       const tn = rawData.nodes.find(n=>n.entity_id===r.target_entity_id);
-      const hc = getHealthTone(r);
       html += `<div class="detail-row" style="flex-direction:column;align-items:flex-start;gap:2px;padding:4px 0">
         <span style="font-size:11px;color:var(--text)">${sn?.entity_name||r.source_entity_id} → ${tn?.entity_name||r.target_entity_id}</span>
-        <span class="detail-val ${hc}" style="font-size:10px">${getHealthLabel(r)}</span>
       </div>`;
     });
     if(rv.count>5) html += `<div style="font-size:11px;color:var(--text3);padding:2px 0">… 还有 ${rv.count-5} 条</div>`;
@@ -1778,6 +2073,7 @@ function closeEntityDrawer(){
 
 // ── Subgraph: show ego-network of one entity ──────────────────────────────
 function enterSubgraph(node){
+  resetGraphInteractionState();
   subgraphNode = node.entity_id;
   // Save current vis state (full filter result)
   if(!savedVisNodes) savedVisNodes = visNodes.slice();
@@ -1800,6 +2096,7 @@ function enterSubgraph(node){
   visNodes.forEach(n => { n._x = undefined; n._y = undefined; });
 
   // Show breadcrumb
+  document.getElementById('entity-drawer').classList.remove('open');
   document.getElementById('breadcrumb-bar').classList.add('visible');
   document.getElementById('breadcrumb-node').textContent = `${node.entity_name} (${getNodeDisplayType(node)})`;
 
@@ -1812,6 +2109,7 @@ function enterSubgraph(node){
 }
 
 function exitSubgraph(){
+  resetGraphInteractionState();
   subgraphNode = null;
   document.getElementById('breadcrumb-bar').classList.remove('visible');
   document.getElementById('entity-drawer').classList.remove('open');
@@ -1856,9 +2154,10 @@ function applyFilters(){
 
   visNodes = rawData.nodes.filter(n => {
     if(hiddenNodes.has(n.entity_id)) return false;
-    if(n.entity_id === 'U-ROOT') return true;
+    if(n.entity_id === 'U-ROOT' && hstatus === 'all') return true;
     if(projs && !projs.includes(n.project_id)) return false;
     if(etype !== 'all' && n.entity_type !== etype) return false;
+    if(hstatus !== 'all' && isAlarmNode(n)) return false;
     if(hstatus !== 'all' && getHealthLevel(n) !== hstatus) return false;
     const nName = String(n.entity_name || '').toLowerCase();
     const nId = String(n.entity_id || '').toLowerCase();
@@ -1904,6 +2203,11 @@ function applyFilters(){
     });
     visNodes = rawData.nodes.filter(n => neighborIds.has(n.entity_id));
     visEdges = candidateEdges.filter(r => neighborIds.has(r.source_entity_id) && neighborIds.has(r.target_entity_id));
+    if(hstatus !== 'all'){
+      visNodes = visNodes.filter(n => !isAlarmNode(n));
+      const filteredIds = new Set(visNodes.map(n => n.entity_id));
+      visEdges = visEdges.filter(r => filteredIds.has(r.source_entity_id) && filteredIds.has(r.target_entity_id));
+    }
   }
 
   renderGraph();
@@ -1925,226 +2229,75 @@ function applyFilters(){
 //      same topological depth, keeping the order stable across refreshes.
 // ─────────────────────────────────────────────────────────────────────────
 
-function computeHierarchicalPositions(nodes, W, H){
-  window._projOffset = {};  // reset drag offsets on fresh layout
-
-  const nodeIds = new Set(nodes.map(n => n.entity_id));
+function computeHierarchicalPositions(nodes, edges, W, H){
   const nodeCount = nodes.length;
-  const edgeCount = visEdges.length;
+  const edgeCount = (edges || []).length;
   const layoutScale = (() => {
     let scale = 1;
     if(nodeCount <= 40) scale = 2.0;
     else if(nodeCount <= 70) scale = 1.75;
-    else if(nodeCount <= 110) scale = 1.55;
-    else if(nodeCount <= 160) scale = 1.35;
-    else if(nodeCount <= 240) scale = 1.2;
-    else if(nodeCount <= 360) scale = 1.08;
-    else if(nodeCount >= 700) scale = 0.95;
+    else if(nodeCount <= 110) scale = 1.5;
+    else if(nodeCount <= 180) scale = 1.28;
+    else if(nodeCount <= 260) scale = 1.12;
+    else if(nodeCount >= 700) scale = 0.94;
     const density = edgeCount / Math.max(1, nodeCount);
-    if(density > 3) scale += 0.08;
-    if(density > 5) scale += 0.08;
-    return Math.max(0.9, Math.min(2.1, scale));
+    if(density > 3) scale += 0.06;
+    if(density > 5) scale += 0.05;
+    return Math.max(0.9, Math.min(2.0, scale));
   })();
 
-  const NODE_V_GAP_E = Math.round(NODE_V_GAP * layoutScale);
-  const BAND_MARGIN_E = Math.round(BAND_MARGIN_V * (layoutScale + 0.1));
-  const BAND_GAP_E = Math.round(BAND_GAP * (layoutScale + 0.15));
-  const minColSpan = NODE_W * (layoutScale >= 1.6 ? 2.25 : layoutScale >= 1.3 ? 2.0 : 1.7);
-  const COL_SPAN_E = Math.round(Math.max(COL_SPAN * layoutScale, minColSpan));
-  const CELL_H_E = NODE_H + NODE_V_GAP_E;
-  const MIN_BAND_H = Math.max(CELL_H_E * 2, NODE_H * 3 + NODE_V_GAP_E * 2);
-
-  // ── Step 1: build adjacency from ALL currently visible edges ─────────
-  // We use visEdges (before collapse remapping) so real relations drive
-  // topology; dispEdges remapped edges would work too but visEdges is cleaner.
-  const edgeSrc = visEdges.filter(
-    e => nodeIds.has(e.source_entity_id) && nodeIds.has(e.target_entity_id)
-  );
-
-  // out-edges and in-degree per node
-  const outMap   = {};   // id -> Set of target ids
-  const inDegree = {};
-  nodes.forEach(n => { outMap[n.entity_id] = new Set(); inDegree[n.entity_id] = 0; });
-  edgeSrc.forEach(e => {
-    if(outMap[e.source_entity_id] && !outMap[e.source_entity_id].has(e.target_entity_id)){
-      outMap[e.source_entity_id].add(e.target_entity_id);
-      inDegree[e.target_entity_id] = (inDegree[e.target_entity_id]||0) + 1;
-    }
-  });
-
-  // ── Step 2: longest-path layering (handles cycles via visited guard) ──
-  // layer[id] = column index (0 = leftmost / root)
-  const layer = {};
-  nodes.forEach(n => { layer[n.entity_id] = 0; });
-
-  // BFS forward-pass: for each edge u→v, layer[v] = max(layer[v], layer[u]+1)
-  // Repeat until stable (handles back-edges in cycles gracefully)
-  // Use LAYER_ORDER rank as initial seed so disconnected nodes keep original order
-  const typeRank = {};
-  LAYER_ORDER.forEach((t, i) => { typeRank[t] = i; });
-  nodes.forEach(n => { layer[n.entity_id] = typeRank[n.entity_type] !== undefined ? typeRank[n.entity_type] : 0; });
-
-  // Topological forward-pass (up to N iterations to handle long chains)
-  const maxIter = nodes.length + 1;
-  for(let iter = 0; iter < maxIter; iter++){
-    let changed = false;
-    edgeSrc.forEach(e => {
-      const nl = layer[e.source_entity_id] + 1;
-      if(nl > layer[e.target_entity_id]){
-        layer[e.target_entity_id] = nl;
-        changed = true;
-      }
-    });
-    if(!changed) break;
-  }
-
-  // ── Step 3: normalise layers per project so each project starts at 0 ──
-  // This prevents a project that happens to have deep types from pushing
-  // all its nodes far right.
-  const projList = [...new Set(
-    nodes.filter(n => hasProjectKey(n)).map(n => getProjectKey(n))
-  )].sort();
-
-  const projNodes = {};
-  projList.forEach(p => { projNodes[p] = nodes.filter(n => n.project_id === p); });
-
-  // Per-project min layer → shift so min = 0
-  projList.forEach(proj => {
-    const pnodes = projNodes[proj];
-    if(!pnodes.length) return;
-    const minL = Math.min(...pnodes.map(n => layer[n.entity_id]));
-    pnodes.forEach(n => { layer[n.entity_id] -= minL; });
-  });
-
-  // Global nodes: keep their layer as-is (they sit in their own row)
-  const globalNodes = nodes.filter(n => !n.project_id || n.project_id === 'global');
-
-  // ── Step 4: column X positions (shared across all projects) ───────────
-  // Use the max layer across all nodes to define column count
-  const maxLayer = Math.max(...nodes.map(n => layer[n.entity_id]), 0);
-  const colX = {};   // layer index → x centre
-  for(let l = 0; l <= maxLayer; l++){
-    colX[l] = MARGIN_L + l * COL_SPAN_E;
-  }
-
-  // ── Step 5: band heights ───────────────────────────────────────────────
-  function bandHeight(proj){
-    // max nodes sharing the same layer within this project
-    const layerCounts = {};
-    projNodes[proj].forEach(n => {
-      const l = layer[n.entity_id];
-      layerCounts[l] = (layerCounts[l]||0) + 1;
-    });
-    const maxCount = Math.max(...Object.values(layerCounts), 1);
-    return Math.max(maxCount * CELL_H_E + BAND_MARGIN_E * 2, MIN_BAND_H);
-  }
-
-  const bandTopY = {};
-  let curY = CANVAS_TOP;
-  projList.forEach(proj => {
-    bandTopY[proj] = curY;
-    curY += bandHeight(proj) + BAND_GAP_E;
-  });
-  const totalUsedH = curY - BAND_GAP_E;
-
-  // ── Step 6: assign positions ───────────────────────────────────────────
+  const ROW_GAP_E = Math.max(18, Math.round(NODE_V_GAP * layoutScale));
+  const COL_SPAN_E = Math.round(Math.max(NODE_W + 56, COL_SPAN * layoutScale));
   const positions = {};
+  if(!nodes.length) return positions;
 
-  // Global nodes: centred vertically
-  globalNodes.forEach(n => {
-    positions[n.entity_id] = {
-      x: colX[layer[n.entity_id]] !== undefined ? colX[layer[n.entity_id]] : MARGIN_L,
-      y: CANVAS_TOP + totalUsedH / 2
-    };
+  const nodeById = Object.fromEntries(nodes.map(node => [node.entity_id, node]));
+  const typeList = Array.from(new Set(nodes.map(node => String(node.entity_type || '未知')))).sort(compareTypeOrder);
+  const typeWeights = {};
+  (edges || []).forEach(edge => {
+    const src = nodeById[edge.source_entity_id];
+    const tgt = nodeById[edge.target_entity_id];
+    if(!src || !tgt) return;
+    const srcType = String(src.entity_type || '未知');
+    const tgtType = String(tgt.entity_type || '未知');
+    if(srcType === tgtType) return;
+    typeWeights[srcType] = typeWeights[srcType] || {};
+    typeWeights[srcType][tgtType] = (typeWeights[srcType][tgtType] || 0) + 1;
   });
 
-  // Project nodes: group by (proj, layer), sort within each cell by
-  // LAYER_ORDER type rank for stable ordering, then distribute vertically
-  // with a barycentric pass to reduce crossings.
-  projList.forEach(proj => {
-    const bTop = bandTopY[proj];
-    const bH   = bandHeight(proj);
+  const typePlan = buildTypeColumnPlan(typeList, typeWeights);
+  const orderedTypes = typePlan.orderedTypes.length ? typePlan.orderedTypes : typeList;
+  const typeIndex = typePlan.typeIndex;
+  const nodesByType = {};
+  orderedTypes.forEach(type => { nodesByType[type] = []; });
+  nodes.forEach(node => {
+    const type = String(node.entity_type || '未知');
+    if(!nodesByType[type]) nodesByType[type] = [];
+    nodesByType[type].push(node);
+  });
+  orderNodesByTypeColumns(orderedTypes, nodesByType, edges, typeIndex);
 
-    // group by layer
-    const byLayer = {};
-    projNodes[proj].forEach(n => {
-      const l = layer[n.entity_id];
-      (byLayer[l] = byLayer[l]||[]).push(n);
-    });
+  const totalSpan = (orderedTypes.length - 1) * COL_SPAN_E;
+  const startX = orderedTypes.length === 1
+    ? W / 2
+    : Math.max(NODE_W / 2 + 24, W / 2 - totalSpan / 2);
 
-    const applyBarycentricOrder = (layerMap, maxIter = 4) => {
-      const layers = Object.keys(layerMap).map(Number).sort((a,b)=>a-b);
-      const rankMap = {};
-      layers.forEach(l => {
-        layerMap[l].forEach((n, idx) => { rankMap[n.entity_id] = idx; });
-      });
-      if(layers.length < 2) return rankMap;
-      const outEdges = {};
-      const inEdges = {};
-      edgeSrc.forEach(e => {
-        if(!outEdges[e.source_entity_id]) outEdges[e.source_entity_id] = [];
-        if(!inEdges[e.target_entity_id]) inEdges[e.target_entity_id] = [];
-        outEdges[e.source_entity_id].push(e.target_entity_id);
-        inEdges[e.target_entity_id].push(e.source_entity_id);
-      });
-      for(let iter=0; iter<maxIter; iter++){
-        // forward pass
-        for(let i=1; i<layers.length; i++){
-          const l = layers[i];
-          layerMap[l].sort((a,b) => {
-            const aNeighbors = inEdges[a.entity_id] || [];
-            const bNeighbors = inEdges[b.entity_id] || [];
-            const aScore = aNeighbors.length ? aNeighbors.reduce((s,id)=>s+(rankMap[id]||0),0)/aNeighbors.length : rankMap[a.entity_id];
-            const bScore = bNeighbors.length ? bNeighbors.reduce((s,id)=>s+(rankMap[id]||0),0)/bNeighbors.length : rankMap[b.entity_id];
-            if(aScore !== bScore) return aScore - bScore;
-            return rankMap[a.entity_id] - rankMap[b.entity_id];
-          });
-          layerMap[l].forEach((n, idx)=>{ rankMap[n.entity_id] = idx; });
-        }
-        // backward pass
-        for(let i=layers.length-2; i>=0; i--){
-          const l = layers[i];
-          layerMap[l].sort((a,b) => {
-            const aNeighbors = outEdges[a.entity_id] || [];
-            const bNeighbors = outEdges[b.entity_id] || [];
-            const aScore = aNeighbors.length ? aNeighbors.reduce((s,id)=>s+(rankMap[id]||0),0)/aNeighbors.length : rankMap[a.entity_id];
-            const bScore = bNeighbors.length ? bNeighbors.reduce((s,id)=>s+(rankMap[id]||0),0)/bNeighbors.length : rankMap[b.entity_id];
-            if(aScore !== bScore) return aScore - bScore;
-            return rankMap[a.entity_id] - rankMap[b.entity_id];
-          });
-          layerMap[l].forEach((n, idx)=>{ rankMap[n.entity_id] = idx; });
-        }
-      }
-      return rankMap;
-    };
-
-    const baryRank = applyBarycentricOrder(byLayer);
-
-    Object.entries(byLayer).forEach(([lStr, colNodes]) => {
-      const l = Number(lStr);
-      const x = colX[l];
-
-    // Use barycentric order first to reduce crossings, then stabilize with type/name
-      colNodes.sort((a, b) => {
-        const ba = baryRank[a.entity_id] ?? 0;
-        const bb = baryRank[b.entity_id] ?? 0;
-        if(ba !== bb) return ba - bb;
-        const ra = typeRank[a.entity_type] !== undefined ? typeRank[a.entity_type] : 99;
-        const rb = typeRank[b.entity_type] !== undefined ? typeRank[b.entity_type] : 99;
-        if(ra !== rb) return ra - rb;
-        return a.entity_name.localeCompare(b.entity_name);
-      });
-
-      // Centre the column vertically within the band
-      const colH     = colNodes.length * CELL_H_E - NODE_V_GAP_E;
-      const startY   = bTop + (bH - colH) / 2 + NODE_H / 2;
-
-      colNodes.forEach((n, i) => {
-        positions[n.entity_id] = {
-          x,
-          y: startY + i * CELL_H_E
-        };
-      });
+  orderedTypes.forEach((type, idx) => {
+    const colNodes = nodesByType[type] || [];
+    if(!colNodes.length) return;
+    const colX = startX + idx * COL_SPAN_E;
+    const totalColH = colNodes.reduce((sum, node, nodeIdx) => {
+      return sum + getNormalNodeSize(node).height + (nodeIdx < colNodes.length - 1 ? ROW_GAP_E : 0);
+    }, 0);
+    const minY = CANVAS_TOP + NODE_H / 2;
+    let currentY = Math.max(minY, H / 2 - totalColH / 2);
+    colNodes.forEach(node => {
+      const size = getNormalNodeSize(node);
+      positions[node.entity_id] = {
+        x: colX,
+        y: currentY + size.height / 2
+      };
+      currentY += size.height + ROW_GAP_E;
     });
   });
 
@@ -2230,15 +2383,14 @@ function buildDispView(){
     if(expandedGroups.has(key))            return;
 
     const [proj, type] = key.split('::');
-    let ok=0, warn=0, err=0;
+    let ok=0, warn=0;
     nodes.forEach(n => {
       const level = getHealthLevel(n);
       if(level==='正常') ok++;
       else if(level==='告警') warn++;
-      else err++;
     });
     const virtId = `COLL::${key}`;
-    const healthLevel = err>0?'异常':warn>0?'告警':'正常';
+    const healthLevel = warn>0?'告警':'正常';
     const cNode  = {
       entity_id:    virtId,
       entity_name:  type,   // displayed in centre
@@ -2250,7 +2402,7 @@ function buildDispView(){
       _collKey:     key,
       _collNodes:   nodes,
       _collCount:   nodes.length,
-      _collOk: ok, _collWarn: warn, _collErr: err,
+      _collOk: ok, _collWarn: warn, _collErr: 0,
       _x: undefined, _y: undefined,
     };
     collNodes.push(cNode);
@@ -2306,8 +2458,10 @@ function renderGraph(){
   const H = wrap.clientHeight;
 
   // ── Collapse processing ───────────────────────────────────────────────────
-  const { dispNodes, dispEdges, collByVirtId } = buildDispView();
+  const { dispNodes, dispEdges } = buildDispView();
   window._dispNodes = dispNodes;   // expose for refreshEdges
+  window._dispEdges = dispEdges;
+  const dispNodeMap = Object.fromEntries(dispNodes.map(node => [node.entity_id, node]));
   const totalEdges = dispEdges.length;
   showEdgeLabelsByDefault = totalEdges <= 120;
   edgeLabelMode = showEdgeLabelsByDefault ? 'all' : 'hover';
@@ -2325,8 +2479,8 @@ function renderGraph(){
     edges.forEach((e, idx) => { e._lane = idx - mid; });
   });
 
-  // Compute positions using dispNodes (virtual nodes participate in layout)
-  const positions = computeHierarchicalPositions(dispNodes, W, H);
+  // Compute positions using dispNodes + dispEdges so collapsed nodes follow the visible topology.
+  const positions = computeHierarchicalPositions(dispNodes, dispEdges, W, H);
 
   // Store positions on display nodes
   dispNodes.forEach(n => {
@@ -2336,159 +2490,71 @@ function renderGraph(){
     }
   });
 
-  // Draw project backgrounds using dispNodes
-  const projGroups = {};
-  dispNodes.forEach(n => {
-    const projectKey = getProjectKey(n);
-    if(projectKey !== 'global'){
-      if(!projGroups[projectKey]) projGroups[projectKey] = [];
-      projGroups[projectKey].push(n);
-    }
-  });
-  
-  const bgGroup = g.append('g').attr('class','project-bgs');
-
-  // Hull helpers now in shared functions above
-  Object.entries(projGroups).forEach(([proj, pnodes]) => {
-    const cfg = PROJ_CONFIG[proj];
-    if(!cfg) return;
-    
-    // Build convex hull from node corners using shared helpers
-    const hull = _buildHullPath(pnodes, 30);
-    if(!hull || !hull.length) return;
-
-    // Store offset for drag
-    if(!window._projOffset) window._projOffset = {};
-    if(!window._projOffset[proj]) window._projOffset[proj] = {dx:0,dy:0};
-    const off = window._projOffset[proj];
-
-    const pathStr = _hullToPath(hull);
-
-    const projG = bgGroup.append('g')
-      .attr('class', `proj-hull-g proj-${proj}`)
-      .attr('transform', `translate(${off.dx},${off.dy})`);
-
-    // Glow / fill
-    projG.append('path')
-      .attr('d', pathStr)
-      .attr('fill', cfg.bgColor)
-      .attr('stroke', cfg.borderColor)
-      .attr('stroke-width', 1.8)
-      .attr('stroke-dasharray', '7,4')
-      .attr('opacity', 1)
-      .style('filter', `drop-shadow(0 0 10px ${cfg.color}33)`);
-
-    // Label
-    const cx = hull.reduce((s,p)=>s+p[0],0)/hull.length;
-    const minY = Math.min(...hull.map(p=>p[1]));
-    projG.append('text')
-      .attr('x', cx).attr('y', minY + 14)
-      .attr('text-anchor','middle')
-      .attr('font-size', 11)
-      .attr('font-family','IBM Plex Mono, monospace')
-      .attr('fill', cfg.color)
-      .attr('opacity', 0.75)
-      .attr('pointer-events','none')
-      .text(`${proj} · ${cfg.name}`);
-
-    // Drag handle on hull path (drag moves all nodes in this project + redraws)
-    const dragProj = d3.drag()
-      .on('start', function(ev){
-        d3.select(this.parentNode).raise();
-        ev.sourceEvent.stopPropagation();
-      })
-      .on('drag', function(ev){
-        ev.sourceEvent.stopPropagation();
-        off.dx += ev.dx;
-        off.dy += ev.dy;
-        // Move the visual group
-        d3.select(this.parentNode).attr('transform',`translate(${off.dx},${off.dy})`);
-        // Move all nodes in this project
-        pnodes.forEach(n => {
-          if(!n._x) return;
-          n._x += ev.dx;
-          n._y += ev.dy;
-          const ng = g.select(`#node-${n.entity_id}`);
-          const nw = n.entity_id==='U-ROOT'?100:NODE_W;
-          const nh = n.entity_id==='U-ROOT'?38:NODE_H;
-          ng.attr('transform',`translate(${n._x-nw/2},${n._y-nh/2})`);
-          refreshEdges(n);
-        });
-        refreshMinimap();
-      });
-
-    projG.select('path').call(dragProj).style('cursor','move');
-  });
-
   // Helper: get project_id of a node
   function nodeProj(n){ return (n && n.project_id) || 'global'; }
 
   // Draw normal edges first, cross-project edges on top  (use dispEdges/dispNodes)
   const normalEdges = dispEdges.filter(e => {
-    const s = dispNodes.find(n=>n.entity_id===e.source_entity_id);
-    const t = dispNodes.find(n=>n.entity_id===e.target_entity_id);
+    const s = dispNodeMap[e.source_entity_id];
+    const t = dispNodeMap[e.target_entity_id];
     if(!s||!t) return false;
     return nodeProj(s) === nodeProj(t) || nodeProj(s) === 'global' || nodeProj(t) === 'global';
   });
   const crossEdges = dispEdges.filter(e => {
-    const s = dispNodes.find(n=>n.entity_id===e.source_entity_id);
-    const t = dispNodes.find(n=>n.entity_id===e.target_entity_id);
+    const s = dispNodeMap[e.source_entity_id];
+    const t = dispNodeMap[e.target_entity_id];
     if(!s||!t) return false;
     return nodeProj(s) !== nodeProj(t) && nodeProj(s) !== 'global' && nodeProj(t) !== 'global';
   });
 
   function drawEdge(edge, edgeGroup, isCross){
-    const src = dispNodes.find(n=>n.entity_id===edge.source_entity_id);
-    const tgt = dispNodes.find(n=>n.entity_id===edge.target_entity_id);
+    const src = dispNodeMap[edge.source_entity_id];
+    const tgt = dispNodeMap[edge.target_entity_id];
     if(!src||!tgt||!src._x||!tgt._x) return;
 
     const baseColor = RTYPE_MAP[edge.relation_type] || '#64748b';
     const color     = baseColor;  // same color for all edges
     const markerId  = `end-${edge.relation_type.replace(/\s/g,'_')}`;
     const isMonitor = edge.relation_type === '监控';
-    const isDashed  = !isMonitor && getHealthLevel(edge) !== '正常';
+    const srcSize = getNormalNodeSize(src);
+    const tgtSize = getNormalNodeSize(tgt);
+    const laneOffset = (edge._lane || 0) * 9;
+    const geometry = buildFlowCurveGeometry(
+      src._x + srcSize.width / 2,
+      src._y,
+      tgt._x - tgtSize.width / 2,
+      tgt._y,
+      laneOffset,
+      { labelLift: 9, minCp: 46, loopPad: 76 }
+    );
 
-    const snw = src._isColl ? (NODE_W+14) : src.entity_id==='U-ROOT' ? 100 : NODE_W;
-    const tnw = tgt._isColl ? (NODE_W+14) : tgt.entity_id==='U-ROOT' ? 100 : NODE_W;
-
-    // Exit right edge of src, enter left edge of tgt
-    const sx = src._x + snw/2;
-    const laneOffset = (edge._lane || 0) * 6;
-    const sy = src._y + laneOffset;
-    const tx = tgt._x - tnw/2;
-    const ty = tgt._y + laneOffset;
-
-    let pathD;
-    // Uniform S-curve for all edges (cross-project same as normal)
-    const spanX = tx - sx;
-    const c1x = sx + Math.max(40, spanX * 0.45);
-    const c1y = sy + laneOffset * 0.45;
-    const c2x = tx - Math.max(40, spanX * 0.45);
-    const c2y = ty + laneOffset * 0.45;
-    pathD = `M${sx},${sy} C${c1x},${c1y} ${c2x},${c2y} ${tx},${ty}`;
-
+    const edgeClasses = ['edge-path'];
+    if(isCross) edgeClasses.push('edge-cross');
+    if(denseEdges) edgeClasses.push('edge-thin');
+    if(isMonitor){
+      edgeClasses.push('edge-monitor');
+      if(enableEdgeFlow) edgeClasses.push('edge-flow');
+    }
     const pathEl = edgeGroup.append('path')
       .datum(edge)
-      .attr('class', `edge-path${isCross ? ' edge-cross' : ''}${denseEdges ? ' edge-thin' : ''}${enableEdgeFlow ? ' edge-flow' : ''}${isMonitor ? ' edge-monitor' : ''}`)
+      .attr('class', edgeClasses.join(' '))
       .attr('id', `edge-${edge.relation_id}`)
-      .attr('d', pathD)
+      .attr('d', geometry.path)
       .attr('stroke', color)
       .attr('stroke-width', isMonitor ? (denseEdges ? 1.8 : 2.4) : (denseEdges ? 1.1 : 1.5))
       .attr('stroke-opacity', isMonitor ? 0.95 : (denseEdges ? (isCross ? 0.2 : 0.28) : (isCross ? 0.35 : 0.55)))
       .attr('marker-end', `url(#arrow-${markerId})`);
-    const dashArray = isMonitor ? '' : (enableEdgeFlow ? (isDashed ? '5,3' : '6,3') : (isDashed ? '5,3' : ''));
+    const dashArray = isMonitor ? '6,3' : '';
     if(dashArray){
       pathEl.attr('stroke-dasharray', dashArray);
     }
 
     // Label
-    const lx = (sx + tx) / 2;
-    const ly = (sy + ty) / 2 - 7;
     const labelG = edgeGroup.append('g').attr('pointer-events','none');
     const labelId = `edge-label-${edge.relation_id}`;
     const labelEl = labelG.append('text')
       .datum(edge)
-      .attr('x', lx).attr('y', ly)
+      .attr('x', geometry.labelX).attr('y', geometry.labelY)
       .attr('id', labelId)
       .attr('text-anchor','middle')
       .attr('font-size', 9)
@@ -2643,8 +2709,6 @@ function renderGraph(){
         d3.select(this).attr('transform', `translate(${d._x-nw/2},${d._y-nh/2})`);
         // Update connected edges
         refreshEdges(d);
-        // Re-draw hull for this node's project
-        if(hasProjectKey(d)) refreshProjectHull(getProjectKey(d));
         refreshMinimap();
       });
     ng.call(drag);
@@ -2732,7 +2796,7 @@ function _drawCollapsedNode(node, nodeGroup, dispNodes, dispEdges){
   // Health mini-bar (right edge)
   const barX=CW-9, barH=CH-18, barY=10, tot=node._collCount||1;
   let yOff=barY;
-  [[node._collOk,'#00d68f'],[node._collWarn,'#ffcc00'],[node._collErr,'#ff4040']].forEach(([v,col])=>{
+  [[node._collOk,'#00d68f'],[node._collWarn,'#ffcc00']].forEach(([v,col])=>{
     if(!v) return;
     const h=Math.max(3, barH*v/tot);
     cg.append('rect').attr('x',barX).attr('y',yOff).attr('width',4).attr('height',h)
@@ -2763,19 +2827,7 @@ function _drawCollapsedNode(node, nodeGroup, dispNodes, dispEdges){
       _moved=true;
       d._x+=ev.dx; d._y+=ev.dy;
       d3.select(cg.node()).attr('transform',`translate(${d._x-CW/2},${d._y-CH/2})`);
-      // refreshEdges needs _dispNodes to find this virtual node
-      g.selectAll('.edges path.edge-path, .cross-edges path.edge-path').each(function(e){
-        const src2 = (window._dispNodes||[]).find(n=>n.entity_id===e.source_entity_id);
-        const tgt2 = (window._dispNodes||[]).find(n=>n.entity_id===e.target_entity_id);
-        if(!src2||!tgt2) return;
-        if(src2.entity_id!==d.entity_id && tgt2.entity_id!==d.entity_id) return;
-        const snw2=src2._isColl?CW:(src2.entity_id==='U-ROOT'?100:NODE_W);
-        const tnw2=tgt2._isColl?CW:(tgt2.entity_id==='U-ROOT'?100:NODE_W);
-        const sx2=src2._x+snw2/2, sy2=src2._y, tx2=tgt2._x-tnw2/2, ty2=tgt2._y;
-        const sp2=Math.max(40,(tx2-sx2)*0.45);
-        d3.select(this).attr('d',`M${sx2},${sy2} C${sx2+sp2},${sy2} ${tx2-sp2},${ty2} ${tx2},${ty2}`);
-      });
-      if(d.project_id&&d.project_id!=='global') refreshProjectHull(d.project_id);
+      refreshEdges(d);
       refreshMinimap();
     })
   );
@@ -2793,14 +2845,12 @@ function _drawCollapsedNode(node, nodeGroup, dispNodes, dispEdges){
   // ── Tooltip ───────────────────────────────────────────────────────────
   cg.on('mousemove', (ev,d) => {
     const c2 = ETYPE_MAP[d.entity_type]||'#64748b';
-    const hColor = getHealthColor(d, true);
-    const pcfg2 = PROJ_CONFIG[d.project_id];
     const tt = document.getElementById('tooltip');
     tt.innerHTML = `<div class="tt-name" style="color:${c2}">${d.entity_type} <span style="font-size:9px;opacity:.6">聚合</span></div>
       <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${getProjectLabel(d, '—')}</span></div>
       <div class="tt-row"><span class="tt-key">节点数</span><span class="tt-val" style="color:${c2}">${d._collCount} 个</span></div>
       <div class="tt-row"><span class="tt-key">健康分布</span><span class="tt-val">
-        <span style="color:var(--green)">${d._collOk}</span> / <span style="color:var(--yellow)">${d._collWarn}</span> / <span style="color:var(--red)">${d._collErr}</span>
+        <span style="color:var(--green)">${d._collOk}</span> / <span style="color:var(--yellow)">${d._collWarn}</span>
       </span></div>
       <div style="margin-top:4px;font-size:10px;color:var(--accent)">点击展开查看全部节点</div>`;
     tt.classList.add('visible');
@@ -2819,98 +2869,47 @@ function isCrossProject(edge){
 
 function refreshEdges(movedNode){
   const activeNodes = window._dispNodes || visNodes;
+  const activeNodeMap = Object.fromEntries(activeNodes.map(node => [node.entity_id, node]));
   // Re-draw edges (both normal and cross-project) connected to moved node
-  g.selectAll('.edges path.edge-path, .cross-edges path.edge-path').each(function(d){
-    const src = activeNodes.find(n=>n.entity_id===d.source_entity_id);
-    const tgt = activeNodes.find(n=>n.entity_id===d.target_entity_id);
+  g.selectAll('.edges path.edge-path, .cross-edges path.edge-path, .monitor-edges path.edge-path').each(function(d){
+    const src = activeNodeMap[d.source_entity_id];
+    const tgt = activeNodeMap[d.target_entity_id];
     if(!src||!tgt) return;
     if(src.entity_id !== movedNode.entity_id && tgt.entity_id !== movedNode.entity_id) return;
-    const snw = src._isColl ? (NODE_W+14) : src.entity_id==='U-ROOT'?100:NODE_W;
-    const tnw = tgt._isColl ? (NODE_W+14) : tgt.entity_id==='U-ROOT'?100:NODE_W;
-    const laneOffset = (d._lane || 0) * 6;
-    const sx = src._x + snw/2, sy = src._y + laneOffset;
-    const tx = tgt._x - tnw/2, ty = tgt._y + laneOffset;
-    // Uniform S-curve for all edges
-    const spanX = tx - sx;
-    const c1x = sx + Math.max(40, spanX*0.45), c1y = sy + laneOffset * 0.45;
-    const c2x = tx - Math.max(40, spanX*0.45), c2y = ty + laneOffset * 0.45;
-    d3.select(this).attr('d', `M${sx},${sy} C${c1x},${c1y} ${c2x},${c2y} ${tx},${ty}`);
+    const srcSize = getNormalNodeSize(src);
+    const tgtSize = getNormalNodeSize(tgt);
+    const geometry = buildFlowCurveGeometry(
+      src._x + srcSize.width / 2,
+      src._y,
+      tgt._x - tgtSize.width / 2,
+      tgt._y,
+      (d._lane || 0) * 9,
+      { labelLift: 9, minCp: 46, loopPad: 76 }
+    );
+    d3.select(this).attr('d', geometry.path);
   });
   // Re-position edge labels
-  g.selectAll('.edges text.edge-label, .cross-edges text.edge-label').each(function(d){
-    const src = activeNodes.find(n=>n.entity_id===d.source_entity_id);
-    const tgt = activeNodes.find(n=>n.entity_id===d.target_entity_id);
+  g.selectAll('.edges text.edge-label, .cross-edges text.edge-label, .monitor-edges text.edge-label').each(function(d){
+    const src = activeNodeMap[d.source_entity_id];
+    const tgt = activeNodeMap[d.target_entity_id];
     if(!src||!tgt) return;
     if(src.entity_id !== movedNode.entity_id && tgt.entity_id !== movedNode.entity_id) return;
-    const snw = src._isColl ? (NODE_W+14) : src.entity_id==='U-ROOT'?100:NODE_W;
-    const tnw = tgt._isColl ? (NODE_W+14) : tgt.entity_id==='U-ROOT'?100:NODE_W;
-    const laneOffset = (d._lane || 0) * 6;
-    const sx = src._x + snw/2, sy = src._y + laneOffset;
-    const tx = tgt._x - tnw/2, ty = tgt._y + laneOffset;
-    const spanX = tx - sx;
-    // simpler midpoint
-    const mx = (sx+tx)/2, my = (sy+ty)/2 - 7;
-    d3.select(this).attr('x',mx).attr('y',my);
+    const srcSize = getNormalNodeSize(src);
+    const tgtSize = getNormalNodeSize(tgt);
+    const geometry = buildFlowCurveGeometry(
+      src._x + srcSize.width / 2,
+      src._y,
+      tgt._x - tgtSize.width / 2,
+      tgt._y,
+      (d._lane || 0) * 9,
+      { labelLift: 9, minCp: 46, loopPad: 76 }
+    );
+    d3.select(this).attr('x', geometry.labelX).attr('y', geometry.labelY);
   });
 }
 
-// Shared hull helpers (used by renderGraph and refreshProjectHull)
-function _cross(O,A,B){ return (A[0]-O[0])*(B[1]-O[1])-(A[1]-O[1])*(B[0]-O[0]); }
-function _convexHull(pts){
-  if(pts.length<3) return pts;
-  const s=pts.slice().sort((a,b)=>a[0]===b[0]?a[1]-b[1]:a[0]-b[0]);
-  const lo=[],hi=[];
-  for(const p of s){ while(lo.length>=2&&_cross(lo[lo.length-2],lo[lo.length-1],p)<=0)lo.pop(); lo.push(p); }
-  for(let i=s.length-1;i>=0;i--){ const p=s[i]; while(hi.length>=2&&_cross(hi[hi.length-2],hi[hi.length-1],p)<=0)hi.pop(); hi.push(p); }
-  hi.pop(); lo.pop(); return lo.concat(hi);
-}
-function _expandHull(hull,pad){
-  const cx=hull.reduce((s,p)=>s+p[0],0)/hull.length;
-  const cy=hull.reduce((s,p)=>s+p[1],0)/hull.length;
-  return hull.map(([x,y])=>{const dx=x-cx,dy=y-cy,d=Math.sqrt(dx*dx+dy*dy)||1;return[cx+dx/d*(d+pad),cy+dy/d*(d+pad)];});
-}
-function _hullToPath(hull){
-  if(!hull.length)return'';
-  const pts=hull.concat([hull[0],hull[1]]);
-  let d=`M${pts[0][0]},${pts[0][1]}`;
-  for(let i=0;i<hull.length;i++){
-    const p1=pts[i+1],p2=pts[i+2];
-    d+=` Q${p1[0]},${p1[1]} ${(p1[0]+p2[0])/2},${(p1[1]+p2[1])/2}`;
-  }
-  return d+'Z';
-}
-function _buildHullPath(pnodes, pad=30){
-  const raw=[];
-  pnodes.forEach(n=>{
-    if(!n._x) return;
-    const hw=(n.entity_id==='U-ROOT'?100:NODE_W)/2+4;
-    const hh=(n.entity_id==='U-ROOT'?38:NODE_H)/2+4;
-    raw.push([n._x-hw,n._y-hh],[n._x+hw,n._y-hh],[n._x-hw,n._y+hh],[n._x+hw,n._y+hh]);
-  });
-  if(raw.length<3) return null;
-  return _expandHull(_convexHull(raw), pad);
-}
-
-// Re-draw a project's hull when any of its nodes moves
-function refreshProjectHull(proj){
-  const pnodes = visNodes.filter(n=>n.project_id===proj && n._x);
-  if(!pnodes.length) return;
-  const hull = _buildHullPath(pnodes, 30);
-  if(!hull) return;
-  const pathStr = _hullToPath(hull);
-  // Reset offset — positions are already absolute after a node drag
-  if(!window._projOffset) window._projOffset={};
-  window._projOffset[proj]={dx:0,dy:0};
-  const projG = g.select(`.proj-${proj}`);
-  if(!projG.empty()){
-    projG.attr('transform','translate(0,0)');
-    projG.select('path').attr('d', pathStr);
-    const cx=hull.reduce((s,p)=>s+p[0],0)/hull.length;
-    const minY=Math.min(...hull.map(p=>p[1]));
-    projG.select('text').attr('x',cx).attr('y',minY+14);
-  }
-}
 function highlightNode(nodeId){
+  focusedNode = nodeId;
   const connected = new Set([nodeId]);
   visEdges.forEach(e => {
     if(e.source_entity_id===nodeId) connected.add(e.target_entity_id);
@@ -2924,6 +2923,7 @@ function highlightNode(nodeId){
 
 function clearHighlight(){
   if(!g) return;
+  focusedNode = null;
   g.selectAll('.node-g').classed('dimmed', false);
   g.selectAll('.edge-path').classed('dimmed', false);
   g.selectAll('.edge-path').classed('highlighted', false);
@@ -2941,12 +2941,18 @@ function refreshMinimap(){
   const mmW = 168, mmH = 106;
   const scaleX = mmW/W*0.88, scaleY = mmH/H*0.88;
   const sc = Math.min(scaleX, scaleY);
+  const activeNodes = window._dispNodes || visNodes;
+  const activeEdges = window._dispEdges || visEdges;
+  const activeNodeMap = {};
+  activeNodes.forEach(node => {
+    activeNodeMap[node.entity_id || node.entityType] = node;
+  });
 
   const mmG = mmSvg.append('g').attr('transform',`translate(4,4)`);
 
-  visEdges.forEach(e => {
-    const src = visNodes.find(n=>n.entity_id===e.source_entity_id);
-    const tgt = visNodes.find(n=>n.entity_id===e.target_entity_id);
+  activeEdges.forEach(e => {
+    const src = activeNodeMap[e.source_entity_id || e.srcType];
+    const tgt = activeNodeMap[e.target_entity_id || e.tgtType];
     if(!src||!tgt||!src._x||!tgt._x) return;
     mmG.append('line')
       .attr('x1',src._x*sc).attr('y1',src._y*sc)
@@ -2956,7 +2962,7 @@ function refreshMinimap(){
       .attr('opacity',0.4);
   });
 
-  visNodes.forEach(n => {
+  activeNodes.forEach(n => {
     if(!n._x) return;
     mmG.append('rect')
       .attr('x',n._x*sc-4).attr('y',n._y*sc-3)
@@ -3059,6 +3065,7 @@ function showNodeDetail(node){
   const FIELD_LABELS = {
     entity_id:'实体ID', entity_name:'实体名称', entity_type:'实体类型',
     project_id:'项目ID', health_status:'健康状态', alarm_count:'关联告警数', resource_type:'资源类型', created_at:'创建时间',
+    lifecycle_state:'生命周期状态',
     resource_id:'资源ID', hrn:'HRN',
     updated_at:'更新时间', description:'描述', host:'主机地址', port:'端口',
     protocol:'协议', tls_version:'TLS版本', method:'HTTP方法', path:'接口路径',
@@ -3073,13 +3080,13 @@ function showNodeDetail(node){
   };
 
   let html = '<div class="detail-section"><div class="detail-section-title">基本属性</div>';
-  const baseFields = ['entity_id','entity_name','resource_type','project_id','health_status'];
-  if(!isAlarmNode(node)) baseFields.push('alarm_count');
+  const baseFields = ['entity_id','entity_name','resource_type','project_id'];
+  if(!isAlarmNode(node)) baseFields.push('health_status', 'alarm_count');
   baseFields.push('created_at','updated_at');
   baseFields.forEach(k => {
     let v = k==='project_id' ? getProjectLabel(node, '-') : node[k];
     if(k==='resource_type') v = getNodeDisplayType(node);
-    if(v===undefined) return;
+    if(v===undefined || v === '') return;
     const hClass = k==='health_status' ? getHealthClassByStatus(node) : '';
     html += `<div class="detail-row">
       <span class="detail-key">${FIELD_LABELS[k]||k}</span>
@@ -3094,13 +3101,14 @@ function showNodeDetail(node){
     !k.startsWith('_') &&
     FIELD_LABELS[k] &&
     k !== 'entity_type' &&
+    !['health_status','health_level','health_text','is_alarm_node'].includes(k) &&
     !(k === 'alarm_count' && isAlarmNode(node))
   );
   if(extraFields.length){
     html += '<div class="detail-section"><div class="detail-section-title">扩展属性</div>';
     extraFields.forEach(k => {
       const v = node[k];
-      if(v===undefined) return;
+      if(v===undefined || v === '') return;
       html += `<div class="detail-row">
         <span class="detail-key">${FIELD_LABELS[k]||k}</span>
         <span class="detail-val">${v}</span>
@@ -3133,7 +3141,7 @@ function showEdgeDetail(edge){
 
   const FIELD_LABELS = {
     relation_id:'关系ID', relation_type:'关系类型', source_entity_id:'源端实体',
-    target_entity_id:'目标实体', health_status:'健康状态', created_at:'创建时间',
+    target_entity_id:'目标实体', created_at:'创建时间',
     derived_from:'来源',
     updated_at:'更新时间', latency_ms:'延迟(ms)', qps:'QPS', error_rate:'错误率',
     algorithm:'负载算法', weight:'权重', pool_size:'连接池', avg_query_ms:'平均查询(ms)',
@@ -3142,27 +3150,26 @@ function showEdgeDetail(edge){
     cross_project:'跨项目', desc:'说明',
   };
 
-  const baseFields = ['relation_id','relation_type','source_entity_id','target_entity_id','health_status','created_at','updated_at'];
+  const baseFields = ['relation_id','relation_type','source_entity_id','target_entity_id','created_at','updated_at'];
   let html = '<div class="detail-section"><div class="detail-section-title">关系信息</div>';
   baseFields.forEach(k => {
     let v = edge[k];
-    if(v===undefined) return;
+    if(v===undefined || v === '') return;
     if(k==='source_entity_id' && srcNode) v = `${srcNode.entity_name} (${v})`;
     if(k==='target_entity_id' && tgtNode) v = `${tgtNode.entity_name} (${v})`;
-    const hClass = k==='health_status' ? getHealthClassByStatus(edge) : '';
     html += `<div class="detail-row">
       <span class="detail-key">${FIELD_LABELS[k]||k}</span>
-      <span class="detail-val ${hClass}">${k==='health_status' ? getHealthLabel(edge) : v}</span>
+      <span class="detail-val">${v}</span>
     </div>`;
   });
   html += '</div>';
 
-  const extraFields = Object.keys(edge).filter(k => !baseFields.includes(k));
+  const extraFields = Object.keys(edge).filter(k => !baseFields.includes(k) && !['health_status','health_level','health_text'].includes(k));
   if(extraFields.length){
     html += '<div class="detail-section"><div class="detail-section-title">关系属性</div>';
     extraFields.forEach(k => {
       const v = edge[k];
-      if(v===undefined) return;
+      if(v===undefined || v === '') return;
       html += `<div class="detail-row">
         <span class="detail-key">${FIELD_LABELS[k]||k}</span>
         <span class="detail-val">${v}</span>
@@ -3191,15 +3198,17 @@ function showTooltip(ev, d, type){
     const alarmRow = isAlarmNode(d)
       ? `<div class="tt-row"><span class="tt-key">节点性质</span><span class="tt-val" style="color:var(--yellow)">告警节点</span></div>`
       : `<div class="tt-row"><span class="tt-key">关联告警</span><span class="tt-val" style="color:${alarmCount>0?'var(--red)':'var(--green)'}">${alarmCount}</span></div>`;
+    const statusRow = isAlarmNode(d)
+      ? ''
+      : `<div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>`;
     html = `<div class="tt-name" style="color:${color}">${d.entity_name}</div>
       <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${getNodeDisplayType(d)}</span></div>
       <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${getProjectLabel(d, '-')}</span></div>
-      <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>
+      ${statusRow}
       ${alarmRow}
       <div class="tt-row"><span class="tt-key">ID</span><span class="tt-val">${d.entity_id}</span></div>`;
   } else {
     const color = RTYPE_MAP[d.relation_type]||'#64748b';
-    const hColor = getHealthColor(d, true);
     const ttSrc = (window._dispNodes||visNodes).find(n=>n.entity_id===d.source_entity_id);
     const ttTgt = (window._dispNodes||visNodes).find(n=>n.entity_id===d.target_entity_id);
     const srcName = ttSrc ? ttSrc.entity_name : d.source_entity_id;
@@ -3209,8 +3218,7 @@ function showTooltip(ev, d, type){
       getProjectKey(ttSrc) !== 'global' && getProjectKey(ttTgt) !== 'global';
     html = `<div class="tt-name" style="color:${color}">${d.relation_type}${ttCross ? ' <span style=\"font-size:9px;color:var(--text3)\">[跨项目]</span>' : ''}</div>
       <div class="tt-row"><span class="tt-key">源端</span><span class="tt-val">${srcName}</span></div>
-      <div class="tt-row"><span class="tt-key">目标</span><span class="tt-val">${tgtName}</span></div>
-      <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>`;
+      <div class="tt-row"><span class="tt-key">目标</span><span class="tt-val">${tgtName}</span></div>`;
   }
   tt.innerHTML = html;
   tt.classList.add('visible');
@@ -3285,19 +3293,20 @@ function updateStats(){
   const n = visNodes.length;
   const e = visEdges.length;
   const projs = new Set(visNodes.map(nd=>nd.project_id).filter(p=>p&&p!=='global'));
-  const ok = visNodes.filter(nd=>getHealthLevel(nd)==='正常').length;
-  const warn = visNodes.filter(nd=>getHealthLevel(nd)==='告警').length;
-  const err = visNodes.filter(nd=>getHealthLevel(nd)==='异常').length;
+  const healthStats = getResourceHealthStats(visNodes);
+  const ok = healthStats.ok;
+  const warn = healthStats.warn;
+  const alarmNodes = healthStats.alarmNodes;
 
   // Header badges
   document.getElementById('hb-nodes').textContent = `节点 ${n}`;
   document.getElementById('hb-edges').textContent = `关系 ${e}`;
   const warnBadge = document.getElementById('hb-warn');
-  const errBadge = document.getElementById('hb-err');
-  if(warn>0){ warnBadge.textContent=`告警 ${warn}`; warnBadge.style.display=''; }
+  const alarmBadge = document.getElementById('hb-alarms');
+  if(warn>0){ warnBadge.textContent=`告警资源 ${warn}`; warnBadge.style.display=''; }
   else warnBadge.style.display='none';
-  if(err>0){ errBadge.textContent=`异常 ${err}`; errBadge.style.display=''; }
-  else errBadge.style.display='none';
+  if(alarmNodes>0){ alarmBadge.textContent=`告警节点 ${alarmNodes}`; alarmBadge.style.display=''; }
+  else alarmBadge.style.display='none';
 
   // Stats bar
   document.getElementById('st-nodes').textContent=n;
@@ -3305,7 +3314,7 @@ function updateStats(){
   document.getElementById('st-projs').textContent=projs.size;
   document.getElementById('st-ok').textContent=ok;
   document.getElementById('st-warn').textContent=warn;
-  document.getElementById('st-err').textContent=err;
+  document.getElementById('st-alarms').textContent=alarmNodes;
 
   // Status bar
   document.getElementById('sb-n').textContent=n;
@@ -3313,7 +3322,7 @@ function updateStats(){
   document.getElementById('sb-p').textContent=projs.size;
   document.getElementById('sb-ok').textContent=ok;
   document.getElementById('sb-wa').textContent=warn;
-  document.getElementById('sb-er').textContent=err;
+  document.getElementById('sb-al').textContent=alarmNodes;
   document.getElementById('sb-time').textContent=new Date().toLocaleTimeString('zh-CN');
 }
 
@@ -3344,11 +3353,26 @@ function buildLegend(){
 function fitView(){
   const wrap = document.getElementById('canvas-wrap');
   const W = wrap.clientWidth, H = wrap.clientHeight;
-  const xs = visNodes.map(n=>n._x).filter(Boolean);
-  const ys = visNodes.map(n=>n._y).filter(Boolean);
-  if(!xs.length) return;
-  const minX=Math.min(...xs)-NODE_W/2-30, maxX=Math.max(...xs)+NODE_W/2+30;
-  const minY=Math.min(...ys)-NODE_H/2-30, maxY=Math.max(...ys)+NODE_H/2+30;
+  const activeNodes = window._dispNodes || visNodes;
+  const bounds = activeNodes
+    .filter(n => n && n._x !== undefined && n._y !== undefined)
+    .map(n => {
+      if(n.entityType !== undefined){
+        return { minX: n._x - 70, maxX: n._x + 70, minY: n._y - 32, maxY: n._y + 32 };
+      }
+      const size = getNormalNodeSize(n);
+      return {
+        minX: n._x - size.width / 2,
+        maxX: n._x + size.width / 2,
+        minY: n._y - size.height / 2,
+        maxY: n._y + size.height / 2
+      };
+    });
+  if(!bounds.length) return;
+  const minX=Math.min(...bounds.map(b => b.minX))-30;
+  const maxX=Math.max(...bounds.map(b => b.maxX))+30;
+  const minY=Math.min(...bounds.map(b => b.minY))-30;
+  const maxY=Math.max(...bounds.map(b => b.maxY))+30;
   const sc = Math.min(0.95, Math.min(W/(maxX-minX), H/(maxY-minY)));
   const tx = W/2 - (minX+maxX)/2*sc;
   const ty = H/2 - (minY+maxY)/2*sc;
@@ -3430,45 +3454,45 @@ function toggleAuto(){
 // ============================================================
 function showAnalysis(){
   const total = rawData.nodes.length;
-  const ok = rawData.nodes.filter(n=>getHealthLevel(n)==='正常').length;
-  const warn = rawData.nodes.filter(n=>getHealthLevel(n)==='告警').length;
-  const err = rawData.nodes.filter(n=>getHealthLevel(n)==='异常').length;
+  const healthStats = getResourceHealthStats(rawData.nodes);
+  const ok = healthStats.ok;
+  const warn = healthStats.warn;
   
   const byType = {};
   ETYPE_CONFIG.forEach(e => byType[e.type]=[]);
   rawData.nodes.forEach(n => { if(byType[n.entity_type]) byType[n.entity_type].push(n); });
 
-  const criticalNodes = rawData.nodes.filter(n=>getHealthLevel(n)==='异常');
-  const warnNodes = rawData.nodes.filter(n=>getHealthLevel(n)==='告警');
+  const alarmNodeList = rawData.nodes.filter(n => isAlarmNode(n));
+  const warnNodes = rawData.nodes.filter(n => !isAlarmNode(n) && getHealthLevel(n)==='告警');
 
   let html = `
     <div style="margin-bottom:14px">
       <div style="font-size:12px;color:var(--text3);margin-bottom:8px;font-family:'IBM Plex Mono'">整体健康状态</div>
       <div style="display:flex;gap:12px;margin-bottom:6px">
-        <span style="color:var(--green)">✓ 正常 ${ok}</span>
-        <span style="color:var(--yellow)">⚠ 告警 ${warn}</span>
-        <span style="color:var(--red)">✗ 异常 ${err}</span>
+        <span style="color:var(--green)">✓ 正常资源 ${ok}</span>
+        <span style="color:var(--yellow)">⚠ 告警资源 ${warn}</span>
+        <span style="color:var(--red)">🔔 告警节点 ${alarmNodeList.length}</span>
         <span style="color:var(--text3)">共 ${total} 个节点</span>
       </div>
     </div>`;
 
-  if(err>0){
-    html += `<div style="margin-bottom:14px;padding:10px;background:rgba(255,64,64,0.08);border:1px solid rgba(255,64,64,0.2);border-radius:6px">
-      <div style="color:var(--red);font-size:12px;margin-bottom:6px">⚠ 异常节点 (${err})</div>`;
-    criticalNodes.slice(0,5).forEach(n => {
-      html += `<div style="font-size:11px;color:var(--text2);margin-bottom:3px">• ${n.entity_name} (${getNodeDisplayType(n)}) - ${n.project_id}</div>`;
-    });
-    if(criticalNodes.length>5) html += `<div style="font-size:11px;color:var(--text3)">... 还有 ${criticalNodes.length-5} 个</div>`;
-    html += '</div>';
-  }
-
   if(warn>0){
     html += `<div style="margin-bottom:14px;padding:10px;background:rgba(255,204,0,0.06);border:1px solid rgba(255,204,0,0.2);border-radius:6px">
-      <div style="color:var(--yellow);font-size:12px;margin-bottom:6px">⚠ 告警节点 (${warn})</div>`;
+      <div style="color:var(--yellow);font-size:12px;margin-bottom:6px">⚠ 告警资源 (${warn})</div>`;
     warnNodes.slice(0,4).forEach(n => {
       html += `<div style="font-size:11px;color:var(--text2);margin-bottom:3px">• ${n.entity_name} (${getNodeDisplayType(n)}) - ${n.project_id}</div>`;
     });
     if(warnNodes.length>4) html += `<div style="font-size:11px;color:var(--text3)">... 还有 ${warnNodes.length-4} 个</div>`;
+    html += '</div>';
+  }
+
+  if(alarmNodeList.length>0){
+    html += `<div style="margin-bottom:14px;padding:10px;background:rgba(255,64,64,0.08);border:1px solid rgba(255,64,64,0.2);border-radius:6px">
+      <div style="color:var(--red);font-size:12px;margin-bottom:6px">🔔 告警节点 (${alarmNodeList.length})</div>`;
+    alarmNodeList.slice(0,4).forEach(n => {
+      html += `<div style="font-size:11px;color:var(--text2);margin-bottom:3px">• ${n.entity_name} (${getNodeDisplayType(n)}) - ${n.project_id}</div>`;
+    });
+    if(alarmNodeList.length>4) html += `<div style="font-size:11px;color:var(--text3)">... 还有 ${alarmNodeList.length-4} 个</div>`;
     html += '</div>';
   }
 
@@ -3477,10 +3501,10 @@ function showAnalysis(){
   ETYPE_CONFIG.forEach(ec => {
     const cnt = (byType[ec.type]||[]).length;
     if(!cnt) return;
-    const errCnt = (byType[ec.type]||[]).filter(n=>getHealthLevel(n)==='异常').length;
+    const warnCnt = (byType[ec.type]||[]).filter(n => !isAlarmNode(n) && getHealthLevel(n)==='告警').length;
     html += `<div style="padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:4px;font-size:11px">
       <span style="color:${ec.color}">${ec.type}</span>
-      <span style="float:right;color:var(--text3)">${cnt}${errCnt?` <span style="color:var(--red)">(${errCnt}异常)</span>`:''}</span>
+      <span style="float:right;color:var(--text3)">${cnt}${warnCnt?` <span style="color:var(--yellow)">(${warnCnt}告警)</span>`:''}</span>
     </div>`;
   });
   html += '</div>';
@@ -3628,14 +3652,13 @@ function _renderDeployDiagram(){
       if(grp.length <= THRESH) return;
       const key = `${proj}::${type}`;
       if(deployExpandedGroups.has(key)) return;   // user expanded
-      let ok=0,warn=0,err=0;
+      let ok=0,warn=0;
       grp.forEach(n=>{
         const level = getHealthLevel(n);
         if(level==='正常') ok++;
         else if(level==='告警') warn++;
-        else err++;
       });
-      const healthLevel = err>0?'异常':warn>0?'告警':'正常';
+      const healthLevel = warn>0?'告警':'正常';
       const virtId = `DEPCOLL::${key}`;
       const vn = {
         entity_id: virtId, entity_name: type,
@@ -3644,7 +3667,7 @@ function _renderDeployDiagram(){
         health_level: healthLevel,
         _isDeplColl: true, _collKey: key, _collLayer: li,
         _collNodes: grp, _collCount: grp.length,
-        _collOk:ok, _collWarn:warn, _collErr:err,
+        _collOk:ok, _collWarn:warn, _collErr:0,
       };
       deployCollMap[virtId] = vn;
       grp.forEach(n => deployHiddenIds.add(n.entity_id));
@@ -3922,7 +3945,7 @@ function _renderDeployDiagram(){
       .text(`×${n._collCount}`);
     // health mini-bar
     const bx=CARD_W-8, bH=CARD_H-16, bY=8, tot=n._collCount||1; let yOff=bY;
-    [[n._collOk,'#00d68f'],[n._collWarn,'#ffcc00'],[n._collErr,'#ff4040']].forEach(([v,col])=>{
+    [[n._collOk,'#00d68f'],[n._collWarn,'#ffcc00']].forEach(([v,col])=>{
       if(!v)return; const h=Math.max(2,bH*v/tot);
       ng.append('rect').attr('x',bx).attr('y',yOff).attr('width',4).attr('height',h)
         .attr('rx',2).attr('fill',col).attr('opacity',0.85); yOff+=h+1;
@@ -3945,14 +3968,12 @@ function _renderDeployDiagram(){
     });
     // tooltip
     ng.on('mousemove',(ev,d)=>{
-      const hColor = getHealthColor(d, true);
       const tt=document.getElementById('tooltip');
       tt.innerHTML=`<div class="tt-name" style="color:${ldColor}">${d.entity_type} <span style="font-size:9px;opacity:.6">聚合</span></div>
         <div class="tt-row"><span class="tt-key">节点数</span><span class="tt-val" style="color:${ldColor}">${d._collCount}</span></div>
         <div class="tt-row"><span class="tt-key">健康</span><span class="tt-val">
           <span style="color:var(--green)">${d._collOk}</span>/
-          <span style="color:var(--yellow)">${d._collWarn}</span>/
-          <span style="color:var(--red)">${d._collErr}</span></span></div>
+          <span style="color:var(--yellow)">${d._collWarn}</span></span></div>
         <div style="margin-top:4px;font-size:10px;color:var(--accent)">单击展开</div>`;
       tt.classList.add('visible'); moveTooltip(ev);
     }).on('mouseleave',hideTooltip);
@@ -4030,10 +4051,13 @@ function _renderDeployDiagram(){
       if(d.db_type)   fields.push(`DB: ${d.db_type}`);
       if(d.product)   fields.push(`产品: ${d.product}`);
       const hColor = getHealthColor(d, true);
+      const statusRow = isAlarmNode(d)
+        ? ''
+        : `<div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>`;
       const tt=document.getElementById('tooltip');
       tt.innerHTML=`<div class="tt-name" style="color:${ld.color}">${d.entity_name}</div>
         <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${getNodeDisplayType(d)}</span></div>
-        <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>
+        ${statusRow}
         ${fields.map(f=>`<div class="tt-row"><span class="tt-val">${f}</span></div>`).join('')}`;
       tt.classList.add('visible'); moveTooltip(ev);
     }).on('mouseleave',hideTooltip);
@@ -4057,7 +4081,6 @@ function _renderDeployDiagram(){
   `<div class="skill-legend-item">
     <div class="skill-legend-dot" style="background:#00d68f;border-radius:50%"></div>正常
     <div class="skill-legend-dot" style="background:#ffcc00;border-radius:50%;margin-left:6px"></div>告警
-    <div class="skill-legend-dot" style="background:#ff4040;border-radius:50%;margin-left:6px"></div>异常
     <span style="margin-left:8px;color:var(--text3)">折叠阈值 ${THRESH}</span>
   </div>`;
 
@@ -4115,14 +4138,13 @@ function _renderDataFlowDiagram(){
       if(grp.length <= THRESH) return;
       const key = `${ti}::${type}`;
       if(dfExpandedGroups.has(key)) return;   // user expanded
-      let ok=0,warn=0,err=0;
+      let ok=0,warn=0;
       grp.forEach(n=>{
         const level = getHealthLevel(n);
         if(level==='正常') ok++;
         else if(level==='告警') warn++;
-        else err++;
       });
-      const healthLevel = err>0?'异常':warn>0?'告警':'正常';
+      const healthLevel = warn>0?'告警':'正常';
       const virtId = `DFCOLL::${key}`;
       const vn = {
         entity_id: virtId, entity_name: type,
@@ -4131,7 +4153,7 @@ function _renderDataFlowDiagram(){
         health_level: healthLevel,
         _isDFColl: true, _collKey: key, _collTier: ti,
         _collNodes: grp, _collCount: grp.length,
-        _collOk:ok, _collWarn:warn, _collErr:err,
+        _collOk:ok, _collWarn:warn, _collErr:0,
       };
       dfCollMap[virtId] = vn;
       grp.forEach(n => dfHiddenIds.add(n.entity_id));
@@ -4285,7 +4307,7 @@ function _renderDataFlowDiagram(){
       .attr('fill',tdColor).attr('opacity',0.95).attr('pointer-events','none').text(`×${n._collCount}`);
     // health bar
     const bx=NODE_W-8, bH=NODE_H-16, bY=8, tot=n._collCount||1; let yOff=bY;
-    [[n._collOk,'#00d68f'],[n._collWarn,'#ffcc00'],[n._collErr,'#ff4040']].forEach(([v,col])=>{
+    [[n._collOk,'#00d68f'],[n._collWarn,'#ffcc00']].forEach(([v,col])=>{
       if(!v)return; const h=Math.max(2,bH*v/tot);
       ng.append('rect').attr('x',bx).attr('y',yOff).attr('width',4).attr('height',h)
         .attr('rx',2).attr('fill',col).attr('opacity',0.85); yOff+=h+1;
@@ -4306,14 +4328,12 @@ function _renderDataFlowDiagram(){
       showNotif(`已展开 ${d.entity_type}（${d._collCount} 个）`);
     });
     ng.on('mousemove',(ev,d)=>{
-      const hColor = getHealthColor(d, true);
       const tt=document.getElementById('tooltip');
       tt.innerHTML=`<div class="tt-name" style="color:${tdColor}">${d.entity_type} <span style="font-size:9px;opacity:.6">聚合</span></div>
         <div class="tt-row"><span class="tt-key">节点数</span><span class="tt-val" style="color:${tdColor}">${d._collCount}</span></div>
         <div class="tt-row"><span class="tt-key">健康</span><span class="tt-val">
           <span style="color:var(--green)">${d._collOk}</span>/
-          <span style="color:var(--yellow)">${d._collWarn}</span>/
-          <span style="color:var(--red)">${d._collErr}</span></span></div>
+          <span style="color:var(--yellow)">${d._collWarn}</span></span></div>
         <div style="margin-top:4px;font-size:10px;color:var(--accent)">单击展开</div>`;
       tt.classList.add('visible'); moveTooltip(ev);
     }).on('mouseleave',hideTooltip);
@@ -4373,11 +4393,14 @@ function _renderDataFlowDiagram(){
       const hColor = getHealthColor(d, true);
       const inRels=rels.filter(r=>r.target_entity_id===d.entity_id);
       const outRels=rels.filter(r=>r.source_entity_id===d.entity_id);
+      const statusRow = isAlarmNode(d)
+        ? ''
+        : `<div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>`;
       const tt=document.getElementById('tooltip');
       tt.innerHTML=`<div class="tt-name" style="color:${td.color}">${d.entity_name}</div>
         <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${getNodeDisplayType(d)}</span></div>
         <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${getProjectLabel(d, '—')}</span></div>
-        <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>
+        ${statusRow}
         <div class="tt-row"><span class="tt-key">上游</span><span class="tt-val">${inRels.length} 条</span></div>
         <div class="tt-row"><span class="tt-key">下游</span><span class="tt-val">${outRels.length} 条</span></div>`;
       tt.classList.add('visible'); moveTooltip(ev);
@@ -4471,21 +4494,11 @@ const HEALTH_ALIAS = {
   all: 'all',
   ok: '正常',
   warn: '告警',
-  err: '异常',
   normal: '正常',
   healthy: '正常',
-  active: '正常',
-  running: '正常',
   warning: '告警',
-  inactive: '告警',
-  stopped: '告警',
-  error: '异常',
-  recycle: '异常',
-  deleted: '异常',
-  terminated: '异常',
   '正常': '正常',
-  '告警': '告警',
-  '异常': '异常'
+  '告警': '告警'
 };
 
 const RESOURCE_ALIAS = {
@@ -4511,13 +4524,19 @@ let skillExpandNeighbors = false;
 
 function getHealthLabel(item){
   if(item && typeof item === 'object'){
+    if(isAlarmNode(item) || isRelationRecord(item)) return '';
     const explicit = item.health_text !== undefined && item.health_text !== null ? String(item.health_text).trim() : '';
-    if(explicit) return explicit;
+    if(explicit && (explicit === '正常' || explicit === '告警')) return explicit;
     const fallback = item.health_status !== undefined && item.health_status !== null ? String(item.health_status).trim() : '';
-    return fallback || '-';
+    return fallback === '正常' || fallback === '告警' ? fallback : '';
   }
   const text = String(item || '').trim();
-  return text || '-';
+  return text === '正常' || text === '告警' ? text : '';
+}
+
+function isRelationRecord(item){
+  if(!item || typeof item !== 'object') return false;
+  return item.source_entity_id !== undefined && item.target_entity_id !== undefined;
 }
 
 function isAlarmNode(item){
@@ -4535,6 +4554,20 @@ function getAlarmCount(item){
   return Math.floor(count);
 }
 
+function getResourceHealthStats(nodes){
+  const stats = { ok: 0, warn: 0, alarmNodes: 0 };
+  (Array.isArray(nodes) ? nodes : []).forEach(node => {
+    if(isAlarmNode(node)){
+      stats.alarmNodes += 1;
+      return;
+    }
+    const level = getHealthLevel(node);
+    if(level === '告警') stats.warn += 1;
+    else stats.ok += 1;
+  });
+  return stats;
+}
+
 function getNodeDisplayType(item){
   if(!item || typeof item !== 'object') return '-';
   const resourceType = String(item.resource_type || '').trim();
@@ -4544,6 +4577,7 @@ function getNodeDisplayType(item){
 }
 
 function getHealthLevel(item){
+  if(isAlarmNode(item) || isRelationRecord(item)) return '';
   let text = '';
   if(item && typeof item === 'object'){
     if(item.health_level !== undefined && item.health_level !== null) text = String(item.health_level).trim();
@@ -4551,28 +4585,33 @@ function getHealthLevel(item){
   } else {
     text = String(item || '').trim();
   }
-  if(!text) return '正常';
+  if(!text) return '';
   const mapped = HEALTH_ALIAS[text.toLowerCase()] || HEALTH_ALIAS[text];
-  return mapped === '正常' || mapped === '告警' || mapped === '异常' ? mapped : '正常';
+  return mapped === '正常' || mapped === '告警' ? mapped : '';
 }
 
 function getHealthTone(item){
+  if(isAlarmNode(item)) return 'err';
+  if(isRelationRecord(item)) return '';
   const level = getHealthLevel(item);
   if(level === '正常') return 'ok';
   if(level === '告警') return 'warn';
-  return 'err';
+  return '';
 }
 
 function getHealthColor(item, useCssVar=false){
+  if(isAlarmNode(item)){
+    return useCssVar ? 'var(--red)' : '#ff4040';
+  }
   const tone = getHealthTone(item);
   if(useCssVar){
     if(tone === 'ok') return 'var(--green)';
     if(tone === 'warn') return 'var(--yellow)';
-    return 'var(--red)';
+    return 'var(--text3)';
   }
   if(tone === 'ok') return '#00d68f';
   if(tone === 'warn') return '#ffcc00';
-  return '#ff4040';
+  return '#64748b';
 }
 
 function getNodeStrokeColor(item){
@@ -4581,7 +4620,7 @@ function getNodeStrokeColor(item){
 }
 
 function getHealthClassByStatus(value){
-  return getHealthTone(value);
+  return getHealthTone(value) || '';
 }
 
 function hasMeaningfulBootstrap(filters, prompt){
@@ -4615,9 +4654,12 @@ function resetViewStateAfterDatasetChange(){
   subgraphNode = null;
   savedVisNodes = null;
   savedVisEdges = null;
+  window._dispNodes = null;
+  window._dispEdges = null;
   expandedGroups.clear();
   deployExpandedGroups.clear();
   dfExpandedGroups.clear();
+  clearActiveSelections();
   document.getElementById('entity-drawer').classList.remove('open');
   document.getElementById('breadcrumb-bar').classList.remove('visible');
   document.getElementById('detail-panel').classList.remove('open');
@@ -4876,7 +4918,7 @@ function normalizeSkillFilterPatch(patch){
     const raw = String(input.health).trim().toLowerCase();
     const mapped = HEALTH_ALIAS[raw];
     if(!raw || raw === 'all' || raw === '全部') next.health = 'all';
-    else if(mapped === '正常' || mapped === '告警' || mapped === '异常') next.health = mapped;
+    else if(mapped === '正常' || mapped === '告警') next.health = mapped;
   }
 
   if(input.keyword !== undefined && input.keyword !== null){
@@ -4930,8 +4972,7 @@ function inferSkillFiltersFromPrompt(promptText){
     }
   }
 
-  if(/异常|故障|error|err/.test(low)) inferred.health = '异常';
-  else if(/告警|warn|warning/.test(low)) inferred.health = '告警';
+  if(/告警|warn|warning/.test(low)) inferred.health = '告警';
   else if(/正常|healthy|\bok\b/.test(low)) inferred.health = '正常';
 
   if(/上下游|上游|下游|依赖|链路|调用链|upstream|downstream/.test(low)){

@@ -22,30 +22,27 @@ DEFAULT_INPUT_JSON = SKILL_DIR / "runtime" / "mcp-input.json"
 INVALID_PROJECT_VALUES = {
     "cirelation",
 }
+SKILL_PROMPT_MARKERS = (
+    "$ops-dashboard-skill",
+    "server=ges_mcp_server",
+    "tool=query_ges",
+    "python3 scripts/run_ops_dashboard.py",
+    "mcp-input.json",
+    "最终必须返回脚本输出中的准确 htmlpath 和 url",
+)
 HEALTH_ALIAS_TO_KEY = {
     "正常": "ok",
     "ok": "ok",
     "healthy": "ok",
     "normal": "ok",
-    "active": "ok",
-    "running": "ok",
     "告警": "warn",
     "warn": "warn",
     "warning": "warn",
-    "inactive": "warn",
-    "stopped": "warn",
-    "异常": "err",
-    "err": "err",
-    "error": "err",
-    "recycle": "err",
-    "deleted": "err",
-    "terminated": "err",
 }
 
 HEALTH_KEY_TO_DISPLAY = {
     "ok": "正常",
     "warn": "告警",
-    "err": "异常",
 }
 
 ENTITY_ALIAS_TO_KEY = {
@@ -240,6 +237,28 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def looks_like_skill_default_prompt(prompt: object) -> bool:
+    text = str(prompt or "").strip()
+    if not text:
+        return False
+    lowered = text.lower()
+    hit_count = sum(1 for marker in SKILL_PROMPT_MARKERS if marker in lowered)
+    return hit_count >= 2
+
+
+def validate_runtime_prompt(prompt: object) -> str:
+    text = str(prompt or "").strip()
+    if not text:
+        return ""
+    if looks_like_skill_default_prompt(text):
+        raise RuntimeError(
+            "脚本参数 --prompt 收到了 skill 的说明文本，而不是用户本次原话。"
+            "请把用户最新请求原样传给 --prompt，例如："
+            '"展示 xxxxx 项目的 EC2 上下游关系"。'
+        )
+    return text
+
+
 def read_json_file(path: Path) -> object:
     with path.open("r", encoding="utf-8") as fp:
         return json.load(fp)
@@ -261,16 +280,6 @@ def coerce_payload_object(payload: object) -> Dict:
             continue
         break
     raise RuntimeError("MCP payload must be a JSON object or a JSON text string containing an object")
-
-
-def normalize_health_display(value: str) -> str:
-    key = HEALTH_ALIAS_TO_KEY.get(str(value).strip().lower(), "ok")
-    return HEALTH_KEY_TO_DISPLAY[key]
-
-
-def normalize_health_text(value: object, default: str = "正常") -> str:
-    text = str(value or "").strip()
-    return text or default
 
 
 def key_to_health(key: str) -> str:
@@ -393,21 +402,21 @@ def normalize_node(raw: Dict, default_project: str = "UNKNOWN") -> Dict | None:
         )
     project = resolve_project_id(raw, default_project=default_project)
     display_name = str(raw.get("label") or raw.get("name") or raw.get("resource_id") or node_id)
-    health_value = raw.get("health") or raw.get("health_status") or raw.get("lifecycle_state") or "正常"
-    health_text = normalize_health_text(health_value)
     hrn = str(raw.get("hrn") or "").strip()
     resource_id = str(raw.get("resource_id") or raw.get("resourceId") or node_id).strip() or node_id
+    lifecycle_state = str(raw.get("lifecycle_state") or raw.get("lifecycleState") or "").strip()
 
     return {
         "id": node_id,
         "label": display_name,
         "type": node_type,
-        "health": normalize_health_display(str(health_value)),
-        "healthText": health_text,
+        "health": "",
+        "healthText": "",
         "resourceType": resource_type_key,
         "resourceTypeRaw": resource_type_text,
         "resourceId": resource_id,
         "hrn": hrn,
+        "lifecycleState": lifecycle_state,
         "project": project,
     }
 
@@ -441,8 +450,9 @@ def normalize_link(raw: Dict, exact_index: Dict[str, str], lowered_index: Dict[s
         "source": source,
         "target": target,
         "type": normalize_relation_key(str(relation_type_raw)),
-        "health": normalize_health_display(str(raw.get("health") or raw.get("health_status") or "正常")),
-        "healthText": normalize_health_text(raw.get("health") or raw.get("health_status") or "正常"),
+        "health": "",
+        "healthText": "",
+        "derivedFrom": str(raw.get("derived_from") or raw.get("derivedFrom") or "").strip(),
     }
 
 
@@ -536,9 +546,7 @@ def infer_filters_from_prompt(
             filters["relationType"] = key
             break
 
-    if re.search(r"异常|故障|error|err", low):
-        filters["health"] = "err"
-    elif re.search(r"告警|warn|warning", low):
+    if re.search(r"告警|warn|warning", low):
         filters["health"] = "warn"
     elif re.search(r"正常|healthy|\bok\b", low):
         filters["health"] = "ok"
@@ -573,14 +581,25 @@ def apply_filters(nodes: List[Dict], links: List[Dict], filters: Dict[str, str])
         if token not in resource_filters:
             resource_filters.append(token)
     expand_neighbors = str(filters.get("expandNeighbors", "")).strip().lower() in {"1", "true", "yes", "on"}
+    alarm_node_ids, related_alarm_ids = build_alarm_index(nodes, links)
+
+    def node_health_display(node: Dict) -> str:
+        node_id = str(node.get("id") or node.get("entity_id") or "").strip()
+        if node_id in alarm_node_ids or is_alarm_node_record(node):
+            return ""
+        return "告警" if related_alarm_ids.get(node_id) else "正常"
 
     def match_node(node: Dict) -> bool:
         if filters.get("project", "all") != "all" and node.get("project") != filters["project"]:
             return False
         if filters.get("entityType", "all") != "all" and node.get("type") != filters["entityType"]:
             return False
-        if filters.get("health", "all") != "all" and health_to_key(node.get("health", "正常")) != filters["health"]:
-            return False
+        health_filter = filters.get("health", "all")
+        if health_filter != "all":
+            if is_alarm_node_record(node):
+                return False
+            if health_to_key(node_health_display(node) or "正常") != health_filter:
+                return False
         if resource_filters:
             node_resource = str(node.get("resourceType", "") or "").strip().lower()
             label = str(node.get("label", "") or "").lower()
@@ -614,6 +633,13 @@ def apply_filters(nodes: List[Dict], links: List[Dict], filters: Dict[str, str])
             link for link in candidate_links
             if link.get("source") in neighbor_ids and link.get("target") in neighbor_ids
         ]
+        if filters.get("health", "all") != "all":
+            expanded_nodes = [node for node in expanded_nodes if not is_alarm_node_record(node)]
+            expanded_ids = {node["id"] for node in expanded_nodes}
+            expanded_links = [
+                link for link in expanded_links
+                if link.get("source") in expanded_ids and link.get("target") in expanded_ids
+            ]
         return expanded_nodes, expanded_links
 
     node_ids = {node["id"] for node in filtered_nodes}
@@ -627,27 +653,35 @@ def apply_filters(nodes: List[Dict], links: List[Dict], filters: Dict[str, str])
     return filtered_nodes, filtered_links
 
 
-def build_summary(nodes: List[Dict], links: List[Dict]) -> Dict:
+def build_summary(
+    nodes: List[Dict],
+    links: List[Dict],
+    *,
+    health_nodes: List[Dict] | None = None,
+    health_links: List[Dict] | None = None,
+) -> Dict:
     health_counter = {"ok": 0, "warn": 0, "err": 0}
     entity_counter: Dict[str, int] = {}
     projects = set()
-    alarm_node_ids, related_alarm_ids = build_alarm_index(nodes, links)
+    alarm_node_ids, related_alarm_ids = build_alarm_index(
+        health_nodes if health_nodes is not None else nodes,
+        health_links if health_links is not None else links,
+    )
+    visible_alarm_count = 0
 
     for node in nodes:
         node_id = str(node.get("id") or node.get("entity_id") or "").strip()
         project_id = normalize_project_value(node.get("project") or node.get("project_id") or "")
         if project_id and project_id not in {"global", "UNKNOWN"}:
             projects.add(project_id)
-        if node_id in alarm_node_ids:
-            level = "告警"
-        elif related_alarm_ids.get(node_id):
-            level = "异常"
-        else:
-            level = "正常"
-        h = health_to_key(level)
-        health_counter[h] = health_counter.get(h, 0) + 1
         et = key_to_entity_label(node.get("type") or node.get("entity_type") or "unknown")
         entity_counter[et] = entity_counter.get(et, 0) + 1
+        if node_id in alarm_node_ids or is_alarm_node_record(node):
+            visible_alarm_count += 1
+            continue
+        level = "告警" if related_alarm_ids.get(node_id) else "正常"
+        h = health_to_key(level)
+        health_counter[h] = health_counter.get(h, 0) + 1
 
     return {
         "nodeCount": len(nodes),
@@ -656,7 +690,7 @@ def build_summary(nodes: List[Dict], links: List[Dict]) -> Dict:
         "okCount": health_counter.get("ok", 0),
         "warnCount": health_counter.get("warn", 0),
         "errCount": health_counter.get("err", 0),
-        "alarmCount": len(alarm_node_ids),
+        "alarmCount": visible_alarm_count,
         "entityTypeCounts": entity_counter,
     }
 
@@ -695,14 +729,6 @@ def build_type_config(labels: List[str], known_order: List[str], color_map: Dict
         }
         for idx, label in enumerate(ordered)
     ]
-
-
-def worst_health(*values: str) -> str:
-    level = {"正常": 0, "告警": 1, "异常": 2}
-    normalized = [normalize_health_display(v) for v in values if v]
-    if not normalized:
-        return "正常"
-    return max(normalized, key=lambda x: level.get(x, 0))
 
 
 def is_alarm_node_record(node: Dict) -> bool:
@@ -745,34 +771,43 @@ def build_alarm_index(nodes: List[Dict], links: List[Dict]) -> Tuple[set[str], D
     return alarm_node_ids, related_alarm_ids
 
 
+def node_health_fields(node: Dict, alarm_node_ids: set[str], related_alarm_ids: Dict[str, set[str]]) -> Tuple[str, str, int, bool]:
+    node_id = str(node.get("id") or node.get("entity_id") or "").strip()
+    is_alarm_node = node_id in alarm_node_ids or is_alarm_node_record(node)
+    alarm_count = len(related_alarm_ids.get(node_id, set()))
+    if is_alarm_node:
+        return "", "", alarm_count, True
+    health_display = "告警" if alarm_count > 0 else "正常"
+    return health_display, health_display, alarm_count, False
+
+
 def to_graph_data(nodes: List[Dict], links: List[Dict]) -> Dict[str, List[Dict]]:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     alarm_node_ids, related_alarm_ids = build_alarm_index(nodes, links)
 
     graph_nodes: List[Dict] = []
-    node_health: Dict[str, str] = {}
     for node in nodes:
-        health_display = normalize_health_display(node.get("health", "正常"))
-        health_text = node.get("healthText", health_display)
         node_id = node["id"]
-        is_alarm_node = node_id in alarm_node_ids
-        alarm_count = len(related_alarm_ids.get(node_id, set()))
-        node_level = "告警" if is_alarm_node else "异常" if alarm_count > 0 else "正常"
-        node_health[node["id"]] = health_display
+        health_status, health_level, alarm_count, is_alarm_node = node_health_fields(
+            node,
+            alarm_node_ids,
+            related_alarm_ids,
+        )
         graph_nodes.append(
             {
                 "entity_id": node_id,
                 "entity_name": node.get("label", node_id),
                 "entity_type": key_to_entity_label(node.get("type", "unknown")),
                 "project_id": node.get("project", "UNKNOWN"),
-                "health_status": health_text,
-                "health_level": node_level,
-                "health_text": health_text,
+                "health_status": health_status,
+                "health_level": health_level,
+                "health_text": health_status,
                 "is_alarm_node": is_alarm_node,
                 "alarm_count": alarm_count,
                 "resource_id": node.get("resourceId") or node_id,
                 "resource_type": node.get("resourceTypeRaw") or node.get("resourceType") or "",
                 "hrn": node.get("hrn") or "",
+                "lifecycle_state": node.get("lifecycleState") or "",
                 "created_at": now,
                 "updated_at": now,
             }
@@ -780,21 +815,15 @@ def to_graph_data(nodes: List[Dict], links: List[Dict]) -> Dict[str, List[Dict]]
 
     graph_relations: List[Dict] = []
     for idx, link in enumerate(links, start=1):
-        relation_health = worst_health(
-            node_health.get(link.get("source", ""), "正常"),
-            node_health.get(link.get("target", ""), "正常"),
-            link.get("health", "正常"),
-        )
-        relation_text = link.get("healthText", relation_health)
         graph_relations.append(
             {
                 "relation_id": f"R-{idx:05d}",
                 "relation_type": key_to_relation_label(link.get("type", "unknown")),
                 "source_entity_id": link.get("source"),
                 "target_entity_id": link.get("target"),
-                "health_status": relation_text,
-                "health_level": relation_health,
-                "health_text": relation_text,
+                "health_status": "",
+                "health_level": "",
+                "health_text": "",
                 "derived_from": link.get("derivedFrom", ""),
                 "created_at": now,
                 "updated_at": now,
@@ -846,7 +875,7 @@ def build_app_config(graph_data: Dict[str, List[Dict]]) -> Dict:
         "entityTypes": entity_types,
         "relationTypes": relation_types,
         "layout": DEFAULT_LAYOUT,
-        "healthStates": ["正常", "正常", "正常", "告警", "异常"],
+        "healthStates": ["正常", "告警"],
     }
 
 
@@ -935,6 +964,7 @@ def main() -> int:
     args = parse_args()
 
     try:
+        args.prompt = validate_runtime_prompt(args.prompt)
         normalized, ctx = load_source_data(args)
     except Exception as exc:  # noqa: BLE001
         print(f"[ERROR] {exc}", file=sys.stderr)
@@ -945,7 +975,12 @@ def main() -> int:
         relation_types=[link.get("type", "") for link in normalized["links"]],
     )
     filtered_nodes, filtered_links = apply_filters(normalized["nodes"], normalized["links"], filters)
-    summary = build_summary(filtered_nodes, filtered_links)
+    summary = build_summary(
+        filtered_nodes,
+        filtered_links,
+        health_nodes=normalized["nodes"],
+        health_links=normalized["links"],
+    )
     app_id = derive_app_id(normalized["nodes"])
 
     graph_data = to_graph_data(normalized["nodes"], normalized["links"])
