@@ -98,12 +98,14 @@ python3 scripts/run_ops_dashboard.py \
   --prompt "看全部关系看板"
 ```
 
-runner 的行为是固定的：
+统一入口脚本的行为是固定的：
 - 如果 live session 不存在，就调用 `scripts/dashboard_session.py start`
 - 如果 live session 已存在，就调用 `scripts/dashboard_session.py update`
 - 首次运行会创建 HTML 并启动本地预览地址
 - 后续运行默认只更新 session JSON，除非模板变化才重建 HTML
 - 每次 update 都会重新读取最新的 `mcp-input.json`
+- live session 的本地 HTTP 服务会在浏览器无请求一段时间后自动退出，默认空闲超时是 120 秒
+- 如需手动清理后台服务，可执行 `python3 scripts/dashboard_session.py stop --session-dir ./runtime/default-session`
 
 ## 脚本接口
 
@@ -123,6 +125,7 @@ python3 scripts/run_ops_dashboard.py \
 - `--port`
 - `--open-browser`
 - `--poll-ms`
+- `--idle-timeout`
 
 ### 底层 live session 命令
 
@@ -142,6 +145,13 @@ python3 scripts/dashboard_session.py update \
   --session-dir ./runtime/default-session \
   --input-json ./runtime/mcp-input.json \
   --prompt "只看 P001 数据库告警"
+```
+
+手动停止后台服务：
+
+```bash
+python3 scripts/dashboard_session.py stop \
+  --session-dir ./runtime/default-session
 ```
 
 ## 输入数据要求
@@ -166,7 +176,7 @@ python3 scripts/dashboard_session.py update \
 ```
 
 要求：
-- 顶层必须是 JSON object
+- 顶层必须是 JSON 对象
 - 必须包含 `data`
 - `data.datas` 必须是非空数组
 - 每个 `datas[i]` 必须包含数组类型的 `nodes` 和 `relations`

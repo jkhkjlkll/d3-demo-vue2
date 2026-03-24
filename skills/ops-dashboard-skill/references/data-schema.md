@@ -1,29 +1,33 @@
-# MCP Data Schema Reference
+# MCP 数据结构说明
 
-Use this schema when the agent has already called the internal MCP tool and written the result to the skill's local JSON file.
+当 agent 已经调用内部 MCP 工具，并把结果写入 skill 本地 JSON 文件后，请按本说明解析数据。
 
-If `query_ges` already returns a JSON text that matches this schema, write that text directly to `./runtime/mcp-input.json`. Do not rebuild another large JSON wrapper around it.
+如果 `query_ges` 已经直接返回符合本说明的 JSON 文本，就把这段文本原样写入 `./runtime/mcp-input.json`。不要再额外包装一层更大的 JSON。
 
-## Input path
+## 输入路径
 
-Default relative path:
+默认相对路径：
 
 ```text
 ./runtime/mcp-input.json
 ```
 
-Repository absolute path:
+仓库内绝对路径：
 
 ```text
 /Users/xiao/code/d3-demo-vue2/skills/ops-dashboard-skill/runtime/mcp-input.json
 ```
 
-If the host file tool refuses to overwrite an existing file unless it was read first, read `./runtime/mcp-input.json` before overwriting it. If the file does not exist yet, create it directly.
-Do not fall back to PowerShell/string-concatenation rewrites for large payloads; if the host cannot write the direct JSON text to this fixed path, report the real failure.
+如果宿主 file tool 在覆盖已有文件前要求先读取：
+- 先读取 `./runtime/mcp-input.json`
+- 再覆盖写回同一路径
+- 如果文件还不存在，可以直接创建
 
-## MCP contract
+对于大 payload，不要退回到 PowerShell 或字符串拼接脚本去重写文件；如果宿主无法把原始 JSON 文本稳定写到这个固定路径，就直接报告真实错误。
 
-Use the following MCP contract:
+## MCP 调用契约
+
+当前使用下面这套 MCP 契约：
 
 ```json
 {
@@ -36,11 +40,11 @@ Use the following MCP contract:
 }
 ```
 
-If the host agent exposes a single MCP entrypoint rather than separate server/tool names, treat `query_ges` as that single entrypoint name.
+如果宿主 agent 没有 `server/tool` 二级概念，而是只暴露一个 MCP 调用入口，就把 `query_ges` 当成那个入口名。
 
-## Accepted payload shape
+## 支持的返回结构
 
-The renderer now accepts only the MCP payload shape below.
+渲染器目前只接受下面这种 MCP 返回结构：
 
 ```json
 {
@@ -57,27 +61,27 @@ The renderer now accepts only the MCP payload shape below.
 }
 ```
 
-Validation rules:
-- top-level payload must be a JSON object
-- `data` must be a JSON object
-- `data.datas` must be a non-empty array
-- every `data.datas[i]` must be an object
-- every `data.datas[i].nodes` must be an array
-- every `data.datas[i].relations` must be an array
-- invalid JSON or invalid shape is a fatal error; no fallback path exists
+校验规则：
+- 顶层必须是 JSON 对象
+- `data` 必须是 JSON 对象
+- `data.datas` 必须是非空数组
+- 每个 `data.datas[i]` 必须是对象
+- 每个 `data.datas[i].nodes` 必须是数组
+- 每个 `data.datas[i].relations` 必须是数组
+- JSON 非法或结构不合法时，直接视为致命错误，不允许兜底
 
-## Node mapping
+## 节点字段映射
 
-Input fields used by the renderer:
-- Node ID: `nodes[].id`
-- Node label: `nodes[].name`
-- Node type: `nodes[].resource_type`
-- Node health: `nodes[].lifecycle_state`
-- Project/app dimension:
-  - preferred: `nodes[].project`, `nodes[].project_id`, `nodes[].app_id`, `nodes[].appId`
-  - fallback: `nodes[].app_user`
+渲染器会使用这些节点字段：
+- 节点 ID：`nodes[].id`
+- 节点名称：`nodes[].name`
+- 节点类型：`nodes[].resource_type`
+- 节点状态：`nodes[].lifecycle_state`
+- 项目 / 应用维度：
+  - 优先使用：`nodes[].project`、`nodes[].project_id`、`nodes[].app_id`、`nodes[].appId`
+  - 兜底使用：`nodes[].app_user`
 
-Optional fields that may exist and are tolerated:
+可选字段：
 - `resource_id`
 - `resource_type`
 - `hrn`
@@ -90,67 +94,70 @@ Optional fields that may exist and are tolerated:
 - `env`
 - `app_user`
 - `labels`
-- other business metadata
+- 其他业务扩展字段
 
-Special handling:
-- when `nodes[].resource_type = "alarm"`, the renderer treats that node as the `告警` entity type
-- alarm nodes are counted by the page's `告警` metric
-- `alarm` nodes use their own `nodes[].hrn` to indicate which resource they belong to
-- the renderer first tries to match `alarm.hrn` against a non-alarm resource's `hrn`, then `resource_id`, then node `id`
-- when a match is found, the renderer creates an internal `监控` relation for display and marks that resource as abnormal/red
-- if a non-alarm resource has no related alarm nodes, it is marked as normal/green
+特殊处理：
+- 当 `nodes[].resource_type = "alarm"` 时，渲染器会把它识别成 `告警` 类型节点
+- 页面上的 `告警` 数量按 alarm 节点数量统计
+- `alarm` 节点自己的 `nodes[].hrn` 表示它对应的是哪个资源的告警
+- 渲染器会按下面顺序寻找 alarm 对应的资源：
+  - 先匹配普通资源节点的 `hrn`
+  - 再匹配普通资源节点的 `resource_id`
+  - 最后匹配普通资源节点的节点 `id`
+- 一旦匹配成功，渲染器会内部补一条 `监控` 关系用于展示，并把该资源标成红色异常
+- 如果普通资源没有关联任何 alarm 节点，则显示为绿色正常
 
-## Relation mapping
+## 关系字段映射
 
-Input fields used by the renderer:
-- Relation source: `relations[].startNode`
-- Relation target: `relations[].endNode`
-- Relation type: `relations[].relation_type`
+渲染器会使用这些关系字段：
+- 关系起点：`relations[].startNode`
+- 关系终点：`relations[].endNode`
+- 关系类型：`relations[].relation_type`
 
-Legacy aliases still tolerated for compatibility:
+仍然兼容的旧字段别名：
 - `relations[].startNodeId`
 - `relations[].endNodeId`
 
-Known relation aliases:
+已知关系类型别名：
 - `contains` -> `包含`
 - `calls` -> `调用`
 - `same_as` -> `同一资源`
 
-`result[]` is currently ignored.
+`result[]` 当前会被忽略。
 
-## Lifecycle state display
+## 生命周期状态展示
 
-The UI preserves the original lifecycle text for display.
+页面展示时会保留 MCP 返回的原始状态文本。
 
-Examples:
-- `Active` is displayed as `Active`
-- `Recycle` is displayed as `Recycle`
+例如：
+- `Active` 页面就显示 `Active`
+- `Recycle` 页面就显示 `Recycle`
 
-Internal coloring/filtering may still normalize these values into `正常 / 告警 / 异常`, but the displayed text stays as the original lifecycle value.
+内部为了做颜色、筛选和统计，仍然可能把这些值归一化成 `正常 / 告警 / 异常`，但展示文本不会被改写。
 
-## Prompt responsibility split
+## Prompt 职责边界
 
-Responsibility is intentionally split:
+职责拆分如下：
 
-- the agent extracts MCP request arguments from the user's natural language:
+- agent 负责从用户自然语言里提取 MCP 请求参数：
   - `appId`
   - `resourceType`
-- the renderer only uses the prompt for display-side filtering:
+- 渲染器只把 prompt 用于展示层筛选：
   - `relationType`
   - `health`
   - `keyword`
   - `expandNeighbors`
 
-The renderer should not infer request-side `appId` from the prompt anymore.
+渲染器不再负责从 prompt 里推断请求侧的 `appId`。
 
-## Local output behavior
+## 本地输出行为
 
-The dashboard builder can open the generated file locally:
-- pass `--open-output` to open the generated HTML with the default local app/browser
-- stdout includes `htmlPath`
-- if opening fails, stdout includes `openError` but HTML generation still succeeds
+构建脚本支持在本地打开生成结果：
+- 传入 `--open-output` 会尝试用本机默认应用 / 浏览器打开 HTML
+- 标准输出里会包含 `htmlPath`
+- 即使打开失败，HTML 生成仍然算成功，同时会返回 `openError`
 
-For live-session mode:
-- `scripts/dashboard_session.py start` renders `dashboard.html` once and serves it over a local HTTP URL
-- `scripts/dashboard_session.py update` rereads the latest MCP JSON file and rewrites `session-control.json` plus `session-state.json`
-- the page polls these session files to refresh data without regenerating HTML on every run
+对于 live session 模式：
+- `scripts/dashboard_session.py start` 会先生成一次 `dashboard.html`，然后在本地 HTTP 地址上提供访问
+- `scripts/dashboard_session.py update` 会重新读取最新的 MCP JSON，并更新 `session-control.json` 和 `session-state.json`
+- 页面会轮询这些 session 文件，从而在不重建 HTML 的情况下刷新数据

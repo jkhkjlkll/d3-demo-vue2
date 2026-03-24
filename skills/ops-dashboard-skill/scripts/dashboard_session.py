@@ -7,14 +7,19 @@ Start a local dashboard once, then update filters/data without regenerating HTML
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
+import http.server
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
+from time import monotonic, sleep
 from typing import Any, Dict, Tuple
 
 import build_dashboard as builder
@@ -47,11 +52,30 @@ def parse_args() -> argparse.Namespace:
         help="Open the live dashboard URL in the default local browser",
     )
     start.add_argument("--poll-ms", type=int, default=1500, help="How often the page polls session control updates")
+    start.add_argument(
+        "--idle-timeout",
+        type=int,
+        default=120,
+        help="How many idle seconds to keep the background HTTP server alive without browser requests",
+    )
 
     update = subparsers.add_parser("update", help="Update prompt/filters for an existing session using the latest MCP JSON")
     update.add_argument("--session-dir", default=str(DEFAULT_SESSION_DIR), help="Directory storing live session files")
     update.add_argument("--prompt", default="", help="Natural-language request used to infer new filters")
     update.add_argument("--input-json", default="", help="Optional local JSON payload override for this update")
+
+    serve = subparsers.add_parser("serve", help="Internal background HTTP server for a live session")
+    serve.add_argument("--session-dir", required=True, help="Directory storing live session files")
+    serve.add_argument("--port", type=int, required=True, help="Port to bind the local HTTP server")
+    serve.add_argument(
+        "--idle-timeout",
+        type=int,
+        default=120,
+        help="How many idle seconds to keep the background HTTP server alive without browser requests",
+    )
+
+    stop = subparsers.add_parser("stop", help="Stop the background HTTP server for a live session")
+    stop.add_argument("--session-dir", default=str(DEFAULT_SESSION_DIR), help="Directory storing live session files")
 
     return parser.parse_args()
 
@@ -131,25 +155,81 @@ def open_browser(url: str) -> Tuple[bool, str]:
         return False, str(exc)
 
 
-def start_server(session_dir: Path, port: int) -> Tuple[int, Path]:
+def terminate_pid(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if sys.platform.startswith("win"):
+        result = subprocess.run(  # noqa: S603
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return result.returncode == 0
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return False
+
+    for _ in range(20):
+        if not is_pid_running(pid):
+            return True
+        sleep(0.1)
+
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        return not is_pid_running(pid)
+
+    for _ in range(20):
+        if not is_pid_running(pid):
+            return True
+        sleep(0.1)
+    return not is_pid_running(pid)
+
+
+def start_server(session_dir: Path, port: int, idle_timeout: int) -> Tuple[int, Path]:
     log_path = session_dir / SESSION_LOG_NAME
     with log_path.open("ab") as log_fp:
         proc = subprocess.Popen(  # noqa: S603
             [
                 sys.executable,
-                "-m",
-                "http.server",
-                str(port),
-                "--bind",
-                "127.0.0.1",
-                "--directory",
+                str(Path(__file__).resolve()),
+                "serve",
+                "--session-dir",
                 str(session_dir),
+                "--port",
+                str(port),
+                "--idle-timeout",
+                str(max(5, int(idle_timeout))),
             ],
             stdout=log_fp,
             stderr=log_fp,
             start_new_session=True,
+            cwd=tempfile.gettempdir(),
         )
     return proc.pid, log_path
+
+
+def ensure_server_running(session_dir: Path, config: Dict[str, Any], preferred_port: int) -> Tuple[int, int, bool]:
+    pid_file = session_dir / SESSION_PID_NAME
+    current_pid = 0
+    if pid_file.exists():
+        try:
+            current_pid = int(pid_file.read_text(encoding="utf-8").strip() or "0")
+        except ValueError:
+            current_pid = 0
+
+    saved_port = int(config.get("port", preferred_port) or preferred_port)
+    if is_pid_running(current_pid):
+        return current_pid, saved_port, False
+
+    port = pick_port(saved_port)
+    idle_timeout = int(config.get("idle_timeout", 120) or 120)
+    server_pid, _ = start_server(session_dir, port, idle_timeout)
+    pid_file.write_text(str(server_pid), encoding="utf-8")
+    return server_pid, port, True
 
 
 def runtime_args_to_namespace(config: Dict) -> argparse.Namespace:
@@ -335,6 +415,77 @@ def should_rebuild_html(config: Dict[str, Any], session_dir: Path) -> tuple[bool
     return False, ""
 
 
+def command_serve(args: argparse.Namespace) -> int:
+    session_dir = Path(args.session_dir).expanduser().resolve()
+    if not session_dir.exists():
+        print(f"[ERROR] session directory not found: {session_dir}", file=sys.stderr)
+        return 2
+
+    idle_timeout = max(5, int(args.idle_timeout or 120))
+
+    class LiveSessionHandler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *handler_args: Any, **handler_kwargs: Any) -> None:
+            super().__init__(*handler_args, directory=str(session_dir), **handler_kwargs)
+
+        def do_GET(self) -> None:  # noqa: N802
+            self.server.last_activity = monotonic()  # type: ignore[attr-defined]
+            super().do_GET()
+
+        def do_HEAD(self) -> None:  # noqa: N802
+            self.server.last_activity = monotonic()  # type: ignore[attr-defined]
+            super().do_HEAD()
+
+    class LiveSessionHTTPServer(http.server.ThreadingHTTPServer):
+        daemon_threads = True
+        allow_reuse_address = True
+
+    handler = functools.partial(LiveSessionHandler)
+    with LiveSessionHTTPServer(("127.0.0.1", int(args.port)), handler) as server:
+        server.timeout = 1
+        server.last_activity = monotonic()  # type: ignore[attr-defined]
+        while True:
+            server.handle_request()
+            if monotonic() - server.last_activity > idle_timeout:  # type: ignore[attr-defined]
+                break
+    return 0
+
+
+def command_stop(args: argparse.Namespace) -> int:
+    session_dir = Path(args.session_dir).expanduser().resolve()
+    pid_file = session_dir / SESSION_PID_NAME
+    pid = 0
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text(encoding="utf-8").strip() or "0")
+        except ValueError:
+            pid = 0
+
+    stopped = terminate_pid(pid) if pid else False
+    if pid_file.exists():
+        pid_file.unlink(missing_ok=True)
+
+    config_path = session_dir / SESSION_CONFIG_NAME
+    if config_path.exists():
+        config = read_json_file(config_path)
+        config["server_pid"] = 0
+        config["lastStoppedAt"] = now_iso()
+        write_json_file(config_path, config)
+
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "mode": "stop",
+                "sessionDir": str(session_dir),
+                "stopped": bool(stopped or pid == 0 or not is_pid_running(pid)),
+                "serverPid": pid,
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
 def command_start(args: argparse.Namespace) -> int:
     session_dir = Path(args.session_dir).expanduser().resolve()
     session_dir.mkdir(parents=True, exist_ok=True)
@@ -343,6 +494,7 @@ def command_start(args: argparse.Namespace) -> int:
         "input_json": str(Path(args.input_json or builder.DEFAULT_INPUT_JSON).expanduser().resolve()),
         "title": args.title,
         "poll_ms": args.poll_ms,
+        "idle_timeout": max(5, int(args.idle_timeout or 120)),
     }
 
     try:
@@ -372,21 +524,7 @@ def command_start(args: argparse.Namespace) -> int:
         poll_ms=args.poll_ms,
     )
 
-    pid_file = session_dir / SESSION_PID_NAME
-    current_pid = 0
-    if pid_file.exists():
-        try:
-            current_pid = int(pid_file.read_text(encoding="utf-8").strip() or "0")
-        except ValueError:
-            current_pid = 0
-
-    if is_pid_running(current_pid):
-        server_pid = current_pid
-        port = int(read_json_file(session_dir / SESSION_CONFIG_NAME).get("port", args.port)) if (session_dir / SESSION_CONFIG_NAME).exists() else args.port
-    else:
-        port = pick_port(args.port)
-        server_pid, _ = start_server(session_dir, port)
-        pid_file.write_text(str(server_pid), encoding="utf-8")
+    server_pid, port, _ = ensure_server_running(session_dir, config, args.port)
 
     url = f"http://127.0.0.1:{port}/{SESSION_HTML_NAME}"
     session_config = {
@@ -483,6 +621,10 @@ def command_update(args: argparse.Namespace) -> int:
     config["data_version"] = next_data_version
     config["last_prompt"] = prompt
     config["lastUpdatedAt"] = now_iso()
+    server_pid, port, restarted = ensure_server_running(session_dir, config, int(config.get("port", 8765) or 8765))
+    config["server_pid"] = server_pid
+    config["port"] = port
+    config["url"] = f"http://127.0.0.1:{port}/{SESSION_HTML_NAME}"
     write_json_file(config_path, config)
 
     print(
@@ -497,6 +639,7 @@ def command_update(args: argparse.Namespace) -> int:
                 "version": next_version,
                 "dataVersion": next_data_version,
                 "refreshedData": True,
+                "restartedServer": restarted,
                 "rebuiltHtml": rebuilt_html,
                 "rebuildReason": rebuild_reason,
             },
@@ -512,6 +655,10 @@ def main() -> int:
         return command_start(args)
     if args.command == "update":
         return command_update(args)
+    if args.command == "serve":
+        return command_serve(args)
+    if args.command == "stop":
+        return command_stop(args)
     print(f"[ERROR] unsupported command: {args.command}", file=sys.stderr)
     return 2
 

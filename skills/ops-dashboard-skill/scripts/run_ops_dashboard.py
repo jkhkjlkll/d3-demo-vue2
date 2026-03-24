@@ -39,6 +39,12 @@ def parse_args() -> argparse.Namespace:
         help="Open the live dashboard URL in the local default browser",
     )
     parser.add_argument("--poll-ms", type=int, default=1500, help="How often the page polls live session updates")
+    parser.add_argument(
+        "--idle-timeout",
+        type=int,
+        default=120,
+        help="How many idle seconds to keep the background live-session server alive without browser requests",
+    )
     return parser.parse_args()
 
 
@@ -59,6 +65,7 @@ def main() -> int:
             port=args.port,
             open_browser=args.open_browser,
             poll_ms=args.poll_ms,
+            idle_timeout=args.idle_timeout,
         )
         return live.command_start(start_args)
 
