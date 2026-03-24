@@ -2,6 +2,8 @@
 
 Use this schema when the agent has already called the internal MCP tool and written the result to the skill's local JSON file.
 
+If `query_ges` already returns a JSON text that matches this schema, write that text directly to `./runtime/mcp-input.json`. Do not rebuild another large JSON wrapper around it.
+
 ## Input path
 
 Default relative path:
@@ -17,6 +19,7 @@ Repository absolute path:
 ```
 
 If the host file tool refuses to overwrite an existing file unless it was read first, read `./runtime/mcp-input.json` before overwriting it. If the file does not exist yet, create it directly.
+Do not fall back to PowerShell/string-concatenation rewrites for large payloads; if the host cannot write the direct JSON text to this fixed path, report the real failure.
 
 ## MCP contract
 
@@ -70,7 +73,9 @@ Input fields used by the renderer:
 - Node label: `nodes[].name`
 - Node type: `nodes[].resource_type`
 - Node health: `nodes[].lifecycle_state`
-- Project/app dimension: `nodes[].app_user`
+- Project/app dimension:
+  - preferred: `nodes[].project`, `nodes[].project_id`, `nodes[].app_id`, `nodes[].appId`
+  - fallback: `nodes[].app_user`
 
 Optional fields that may exist and are tolerated:
 - `resource_id`
@@ -90,7 +95,9 @@ Optional fields that may exist and are tolerated:
 Special handling:
 - when `nodes[].resource_type = "alarm"`, the renderer treats that node as the `告警` entity type
 - alarm nodes are counted by the page's `告警` metric
-- if a non-alarm resource is connected to one or more alarm nodes through `relations[]`, that resource is marked as abnormal/red in the topology
+- `alarm` nodes use their own `nodes[].hrn` to indicate which resource they belong to
+- the renderer first tries to match `alarm.hrn` against a non-alarm resource's `hrn`, then `resource_id`, then node `id`
+- when a match is found, the renderer creates an internal `监控` relation for display and marks that resource as abnormal/red
 - if a non-alarm resource has no related alarm nodes, it is marked as normal/green
 
 ## Relation mapping

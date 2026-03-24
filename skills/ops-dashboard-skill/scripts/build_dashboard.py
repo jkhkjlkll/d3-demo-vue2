@@ -19,6 +19,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
 DEFAULT_TEMPLATE = SKILL_DIR / "assets" / "dashboard.template.html"
 DEFAULT_INPUT_JSON = SKILL_DIR / "runtime" / "mcp-input.json"
+INVALID_PROJECT_VALUES = {
+    "cirelation",
+}
 HEALTH_ALIAS_TO_KEY = {
     "正常": "ok",
     "ok": "ok",
@@ -222,9 +225,27 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def read_json_file(path: Path) -> Dict:
+def read_json_file(path: Path) -> object:
     with path.open("r", encoding="utf-8") as fp:
         return json.load(fp)
+
+
+def coerce_payload_object(payload: object) -> Dict:
+    current = payload
+    for _ in range(2):
+        if isinstance(current, dict):
+            return current
+        if isinstance(current, str):
+            text = current.strip()
+            if text.startswith("```"):
+                parts = text.split("```")
+                text = next((part.strip() for part in parts if part.strip() and not part.strip().startswith("json")), "")
+            if not text:
+                break
+            current = json.loads(text)
+            continue
+        break
+    raise RuntimeError("MCP payload must be a JSON object or a JSON text string containing an object")
 
 
 def normalize_health_display(value: str) -> str:
@@ -269,6 +290,31 @@ def key_to_relation_label(value: str) -> str:
     return RELATION_KEY_TO_DISPLAY.get(key, key or "未知")
 
 
+def normalize_project_value(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.lower() in INVALID_PROJECT_VALUES:
+        return ""
+    return text
+
+
+def resolve_project_id(raw: Dict, default_project: str = "UNKNOWN") -> str:
+    candidates = [
+        raw.get("project"),
+        raw.get("project_id"),
+        raw.get("app_id"),
+        raw.get("appId"),
+        raw.get("app_user"),
+    ]
+    for candidate in candidates:
+        normalized = normalize_project_value(candidate)
+        if normalized:
+            return normalized
+    fallback = normalize_project_value(default_project)
+    return fallback or "UNKNOWN"
+
+
 def normalize_node(raw: Dict, default_project: str = "UNKNOWN") -> Dict | None:
     node_id = str(raw.get("id") or raw.get("entity_id") or "").strip()
     if not node_id:
@@ -290,18 +336,12 @@ def normalize_node(raw: Dict, default_project: str = "UNKNOWN") -> Dict | None:
         node_type = normalize_entity_key(
             str(raw.get("type") or raw.get("entity_type") or raw.get("resource_type") or "unknown")
         )
-    project = str(
-        raw.get("project")
-        or raw.get("project_id")
-        or raw.get("app_user")
-        or raw.get("app_id")
-        or raw.get("appId")
-        or default_project
-        or "UNKNOWN"
-    ).strip() or "UNKNOWN"
+    project = resolve_project_id(raw, default_project=default_project)
     display_name = str(raw.get("label") or raw.get("name") or raw.get("resource_id") or node_id)
     health_value = raw.get("health") or raw.get("health_status") or raw.get("lifecycle_state") or "正常"
     health_text = normalize_health_text(health_value)
+    hrn = str(raw.get("hrn") or "").strip()
+    resource_id = str(raw.get("resource_id") or raw.get("resourceId") or node_id).strip() or node_id
 
     return {
         "id": node_id,
@@ -311,6 +351,8 @@ def normalize_node(raw: Dict, default_project: str = "UNKNOWN") -> Dict | None:
         "healthText": health_text,
         "resourceType": resource_type_key,
         "resourceTypeRaw": resource_type_text,
+        "resourceId": resource_id,
+        "hrn": hrn,
         "project": project,
     }
 
@@ -385,6 +427,7 @@ def normalize_payload(payload: Dict, default_project: str = "UNKNOWN") -> Dict[s
         for l in (normalize_link(item or {}) for item in links_raw)
         if l and l["source"] in node_ids and l["target"] in node_ids
     ]
+    links = build_alarm_links_from_hrn(nodes, links)
     return {"nodes": nodes, "links": links}
 
 
@@ -529,7 +572,9 @@ def build_summary(nodes: List[Dict], links: List[Dict]) -> Dict:
 
     for node in nodes:
         node_id = str(node.get("id") or node.get("entity_id") or "").strip()
-        projects.add(node.get("project") or node.get("project_id") or "UNKNOWN")
+        project_id = normalize_project_value(node.get("project") or node.get("project_id") or "")
+        if project_id and project_id not in {"global", "UNKNOWN"}:
+            projects.add(project_id)
         if node_id in alarm_node_ids:
             level = "告警"
         elif related_alarm_ids.get(node_id):
@@ -615,6 +660,60 @@ def is_alarm_node_record(node: Dict) -> bool:
     return key_to_entity_label(node_type) == "告警" or node_type == "告警"
 
 
+def build_alarm_links_from_hrn(nodes: List[Dict], links: List[Dict]) -> List[Dict]:
+    hrn_to_node: Dict[str, str] = {}
+    resource_id_to_node: Dict[str, str] = {}
+    node_id_to_node: Dict[str, str] = {}
+    alarm_nodes: List[Dict] = []
+
+    for node in nodes:
+        node_id = str(node.get("id") or node.get("entity_id") or "").strip()
+        if not node_id:
+            continue
+        if is_alarm_node_record(node):
+            alarm_nodes.append(node)
+            continue
+        hrn = str(node.get("hrn") or "").strip()
+        resource_id = str(node.get("resourceId") or node.get("resource_id") or "").strip()
+        if hrn and hrn not in hrn_to_node:
+            hrn_to_node[hrn] = node_id
+        if resource_id and resource_id not in resource_id_to_node:
+            resource_id_to_node[resource_id] = node_id
+        if node_id not in node_id_to_node:
+            node_id_to_node[node_id] = node_id
+
+    existing_pairs = {
+        (str(link.get("source") or "").strip(), str(link.get("target") or "").strip())
+        for link in links
+        if str(link.get("source") or "").strip() and str(link.get("target") or "").strip()
+    }
+
+    derived_links = list(links)
+    for alarm in alarm_nodes:
+        alarm_id = str(alarm.get("id") or alarm.get("entity_id") or "").strip()
+        target_ref = str(alarm.get("hrn") or "").strip()
+        if not alarm_id or not target_ref:
+            continue
+        target_id = hrn_to_node.get(target_ref) or resource_id_to_node.get(target_ref) or node_id_to_node.get(target_ref)
+        if not target_id or target_id == alarm_id:
+            continue
+        if (alarm_id, target_id) in existing_pairs or (target_id, alarm_id) in existing_pairs:
+            continue
+        existing_pairs.add((alarm_id, target_id))
+        derived_links.append(
+            {
+                "source": alarm_id,
+                "target": target_id,
+                "type": "monitor",
+                "health": "告警",
+                "healthText": "告警",
+                "derivedFrom": "alarm.hrn",
+            }
+        )
+
+    return derived_links
+
+
 def build_alarm_index(nodes: List[Dict], links: List[Dict]) -> Tuple[set[str], Dict[str, set[str]]]:
     node_ids = {str(node.get("id") or node.get("entity_id") or "").strip() for node in nodes}
     alarm_node_ids = {
@@ -662,7 +761,9 @@ def to_graph_data(nodes: List[Dict], links: List[Dict]) -> Dict[str, List[Dict]]
                 "health_text": health_text,
                 "is_alarm_node": is_alarm_node,
                 "alarm_count": alarm_count,
+                "resource_id": node.get("resourceId") or node_id,
                 "resource_type": node.get("resourceTypeRaw") or node.get("resourceType") or "",
+                "hrn": node.get("hrn") or "",
                 "created_at": now,
                 "updated_at": now,
             }
@@ -685,6 +786,7 @@ def to_graph_data(nodes: List[Dict], links: List[Dict]) -> Dict[str, List[Dict]]
                 "health_status": relation_text,
                 "health_level": relation_health,
                 "health_text": relation_text,
+                "derived_from": link.get("derivedFrom", ""),
                 "created_at": now,
                 "updated_at": now,
             }
@@ -698,7 +800,7 @@ def build_app_config(graph_data: Dict[str, List[Dict]]) -> Dict:
         {
             n.get("project_id")
             for n in graph_data.get("nodes", [])
-            if n.get("project_id") and n.get("project_id") != "global"
+            if n.get("project_id") and n.get("project_id") not in {"global", "UNKNOWN"}
         }
     )
 
@@ -784,7 +886,14 @@ def open_output_file(path: Path) -> tuple[bool, str]:
 
 
 def derive_app_id(nodes: List[Dict]) -> str:
-    projects = sorted({str(node.get("project") or "").strip() for node in nodes if str(node.get("project") or "").strip()})
+    projects = sorted(
+        {
+            project
+            for node in nodes
+            if (project := normalize_project_value(node.get("project")))
+            and project not in {"global", "UNKNOWN"}
+        }
+    )
     if len(projects) == 1:
         return projects[0]
     return ""
@@ -797,7 +906,7 @@ def load_source_data(args: argparse.Namespace) -> Tuple[Dict[str, List[Dict]], B
         raise RuntimeError(f"MCP input JSON not found: {input_path}")
 
     try:
-        payload = read_json_file(input_path)
+        payload = coerce_payload_object(read_json_file(input_path))
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"MCP input JSON is invalid: {exc}") from exc
 

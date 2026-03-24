@@ -1045,6 +1045,7 @@ let liveSessionBusy = false;
 let liveSessionPollTimer = null;
 let liveSessionVersion = 0;
 let liveSessionDataVersion = 0;
+const INVALID_PROJECT_IDS = new Set(['', 'global', 'UNKNOWN']);
 
 function cloneJson(value){
   return JSON.parse(JSON.stringify(value || {}));
@@ -1085,7 +1086,7 @@ function rebuildRuntimeConfig(){
   SKILL_COLL_THRESH = layout.skillCollapseThreshold || 10;
   CELL_H = NODE_H + NODE_V_GAP;
   PROJS = [...new Set(
-    safeGraph.nodes.map(n => n.project_id).filter(p => p && p !== 'global')
+    safeGraph.nodes.map(n => n.project_id).filter(p => p && !INVALID_PROJECT_IDS.has(String(p)))
   )].sort();
   APP_ALIAS_MAP = (SKILL_STATE && SKILL_STATE.appAliases) || {};
   const liveState = (SKILL_STATE && SKILL_STATE.liveSession) || {};
@@ -1169,6 +1170,23 @@ function appendProjectBadge(group, opts = {}){
     .text(label);
 
   return { width: badgeWidth, label };
+}
+
+function getProjectKey(item){
+  const raw = item && typeof item === 'object' ? String(item.project_id || '').trim() : String(item || '').trim();
+  if(!raw || INVALID_PROJECT_IDS.has(raw)) return 'global';
+  return raw;
+}
+
+function hasProjectKey(item){
+  return getProjectKey(item) !== 'global';
+}
+
+function getProjectLabel(item, fallback='-'){
+  const key = getProjectKey(item);
+  if(key === 'global') return fallback;
+  const cfg = PROJ_CONFIG[key];
+  return cfg ? (cfg.name || key) : key;
 }
 
 // ── 运行时state ─────────────────────────────────────────────────────────────
@@ -1715,7 +1733,7 @@ function openEntityDrawer(aggNode){
     row.innerHTML = `
       <div class="der-health ${hc}"></div>
       <span class="der-name" title="${n.entity_name}">${n.entity_name}</span>
-      <span class="der-proj">${n.project_id||''}</span>`;
+      <span class="der-proj">${getProjectLabel(n, '')}</span>`;
     row.onclick = () => {
       body.querySelectorAll('.drawer-entity-row').forEach(r=>r.classList.remove('active'));
       row.classList.add('active');
@@ -1867,7 +1885,7 @@ function applyFilters(){
       const sNode = rawData.nodes.find(n=>n.entity_id===r.source_entity_id);
       const tNode = rawData.nodes.find(n=>n.entity_id===r.target_entity_id);
       if(!sNode||!tNode) return false;
-      const sp = sNode.project_id||'global', tp = tNode.project_id||'global';
+      const sp = getProjectKey(sNode), tp = getProjectKey(tNode);
       return sp !== tp && sp !== 'global' && tp !== 'global';
     }
     return true;
@@ -1982,7 +2000,7 @@ function computeHierarchicalPositions(nodes, W, H){
   // This prevents a project that happens to have deep types from pushing
   // all its nodes far right.
   const projList = [...new Set(
-    nodes.filter(n => n.project_id && n.project_id !== 'global').map(n => n.project_id)
+    nodes.filter(n => hasProjectKey(n)).map(n => getProjectKey(n))
   )].sort();
 
   const projNodes = {};
@@ -2317,9 +2335,10 @@ function renderGraph(){
   // Draw project backgrounds using dispNodes
   const projGroups = {};
   dispNodes.forEach(n => {
-    if(n.project_id && n.project_id !== 'global'){
-      if(!projGroups[n.project_id]) projGroups[n.project_id] = [];
-      projGroups[n.project_id].push(n);
+    const projectKey = getProjectKey(n);
+    if(projectKey !== 'global'){
+      if(!projGroups[projectKey]) projGroups[projectKey] = [];
+      projGroups[projectKey].push(n);
     }
   });
   
@@ -2617,7 +2636,7 @@ function renderGraph(){
         // Update connected edges
         refreshEdges(d);
         // Re-draw hull for this node's project
-        if(d.project_id && d.project_id!=='global') refreshProjectHull(d.project_id);
+        if(hasProjectKey(d)) refreshProjectHull(getProjectKey(d));
         refreshMinimap();
       });
     ng.call(drag);
@@ -2770,7 +2789,7 @@ function _drawCollapsedNode(node, nodeGroup, dispNodes, dispEdges){
     const pcfg2 = PROJ_CONFIG[d.project_id];
     const tt = document.getElementById('tooltip');
     tt.innerHTML = `<div class="tt-name" style="color:${c2}">${d.entity_type} <span style="font-size:9px;opacity:.6">聚合</span></div>
-      <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${pcfg2?pcfg2.name:d.project_id}</span></div>
+      <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${getProjectLabel(d, '—')}</span></div>
       <div class="tt-row"><span class="tt-key">节点数</span><span class="tt-val" style="color:${c2}">${d._collCount} 个</span></div>
       <div class="tt-row"><span class="tt-key">健康分布</span><span class="tt-val">
         <span style="color:var(--green)">${d._collOk}</span> / <span style="color:var(--yellow)">${d._collWarn}</span> / <span style="color:var(--red)">${d._collErr}</span>
@@ -2786,7 +2805,7 @@ function isCrossProject(edge){
   const s = visNodes.find(n=>n.entity_id===edge.source_entity_id);
   const t = visNodes.find(n=>n.entity_id===edge.target_entity_id);
   if(!s||!t) return false;
-  const sp = s.project_id||'global', tp = t.project_id||'global';
+  const sp = getProjectKey(s), tp = getProjectKey(t);
   return sp !== tp && sp !== 'global' && tp !== 'global';
 }
 
@@ -2990,7 +3009,7 @@ function buildSidebar(){
       row.className = 'entity-row';
       row.id = `sbrow-${n.entity_id}`;
       const hClass = `hi-${getHealthTone(n)}`;
-      const projLabel = n.project_id && n.project_id!=='global' ? n.project_id : '';
+      const projLabel = getProjectLabel(n, '');
       const displayName = n.entity_name.length > 16 ? n.entity_name.slice(0,15)+'…' : n.entity_name;
       row.innerHTML = `
         <div class="health-indicator ${hClass}"></div>
@@ -3032,6 +3051,7 @@ function showNodeDetail(node){
   const FIELD_LABELS = {
     entity_id:'实体ID', entity_name:'实体名称', entity_type:'实体类型',
     project_id:'项目ID', health_status:'健康状态', alarm_count:'关联告警数', resource_type:'资源类型', created_at:'创建时间',
+    resource_id:'资源ID', hrn:'HRN',
     updated_at:'更新时间', description:'描述', host:'主机地址', port:'端口',
     protocol:'协议', tls_version:'TLS版本', method:'HTTP方法', path:'接口路径',
     version:'版本', auth:'认证方式', replicas:'副本数', image:'镜像',
@@ -3049,7 +3069,7 @@ function showNodeDetail(node){
   if(!isAlarmNode(node)) baseFields.push('alarm_count');
   baseFields.push('created_at','updated_at');
   baseFields.forEach(k => {
-    const v = node[k];
+    const v = k==='project_id' ? getProjectLabel(node, '-') : node[k];
     if(v===undefined) return;
     const hClass = k==='health_status' ? getHealthClassByStatus(node) : '';
     html += `<div class="detail-row">
@@ -3104,6 +3124,7 @@ function showEdgeDetail(edge){
   const FIELD_LABELS = {
     relation_id:'关系ID', relation_type:'关系类型', source_entity_id:'源端实体',
     target_entity_id:'目标实体', health_status:'健康状态', created_at:'创建时间',
+    derived_from:'来源',
     updated_at:'更新时间', latency_ms:'延迟(ms)', qps:'QPS', error_rate:'错误率',
     algorithm:'负载算法', weight:'权重', pool_size:'连接池', avg_query_ms:'平均查询(ms)',
     topic:'消息主题', partitions:'分区数', cpu_usage:'CPU使用率', mem_usage:'内存使用率',
@@ -3162,7 +3183,7 @@ function showTooltip(ev, d, type){
       : `<div class="tt-row"><span class="tt-key">关联告警</span><span class="tt-val" style="color:${alarmCount>0?'var(--red)':'var(--green)'}">${alarmCount}</span></div>`;
     html = `<div class="tt-name" style="color:${color}">${d.entity_name}</div>
       <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${d.entity_type}</span></div>
-      <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${d.project_id||'-'}</span></div>
+      <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${getProjectLabel(d, '-')}</span></div>
       <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>
       ${alarmRow}
       <div class="tt-row"><span class="tt-key">ID</span><span class="tt-val">${d.entity_id}</span></div>`;
@@ -3174,8 +3195,8 @@ function showTooltip(ev, d, type){
     const srcName = ttSrc ? ttSrc.entity_name : d.source_entity_id;
     const tgtName = ttTgt ? ttTgt.entity_name : d.target_entity_id;
     const ttCross = ttSrc && ttTgt &&
-      (ttSrc.project_id||'global') !== (ttTgt.project_id||'global') &&
-      (ttSrc.project_id||'global') !== 'global' && (ttTgt.project_id||'global') !== 'global';
+      getProjectKey(ttSrc) !== getProjectKey(ttTgt) &&
+      getProjectKey(ttSrc) !== 'global' && getProjectKey(ttTgt) !== 'global';
     html = `<div class="tt-name" style="color:${color}">${d.relation_type}${ttCross ? ' <span style=\"font-size:9px;color:var(--text3)\">[跨项目]</span>' : ''}</div>
       <div class="tt-row"><span class="tt-key">源端</span><span class="tt-val">${srcName}</span></div>
       <div class="tt-row"><span class="tt-key">目标</span><span class="tt-val">${tgtName}</span></div>
@@ -4147,7 +4168,7 @@ function _renderDataFlowDiagram(){
     if(ti !== undefined) tierGroups[ti].push(n);
   });
   tierGroups.forEach(grp => grp.sort((a,b)=>{
-    if(a.project_id!==b.project_id) return (a.project_id||'').localeCompare(b.project_id||'');
+    if(getProjectKey(a)!==getProjectKey(b)) return getProjectKey(a).localeCompare(getProjectKey(b));
     return a.entity_name.localeCompare(b.entity_name);
   }));
 
@@ -4345,7 +4366,7 @@ function _renderDataFlowDiagram(){
       const tt=document.getElementById('tooltip');
       tt.innerHTML=`<div class="tt-name" style="color:${td.color}">${d.entity_name}</div>
         <div class="tt-row"><span class="tt-key">类型</span><span class="tt-val">${d.entity_type}</span></div>
-        <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${pcfg?pcfg.name:d.project_id||'—'}</span></div>
+        <div class="tt-row"><span class="tt-key">项目</span><span class="tt-val">${getProjectLabel(d, '—')}</span></div>
         <div class="tt-row"><span class="tt-key">状态</span><span class="tt-val" style="color:${hColor}">${getHealthLabel(d)}</span></div>
         <div class="tt-row"><span class="tt-key">上游</span><span class="tt-val">${inRels.length} 条</span></div>
         <div class="tt-row"><span class="tt-key">下游</span><span class="tt-val">${outRels.length} 条</span></div>`;
