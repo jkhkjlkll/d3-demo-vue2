@@ -422,20 +422,8 @@ def normalize_node(raw: Dict, default_project: str = "UNKNOWN") -> Dict | None:
 
 
 def normalize_link(raw: Dict, exact_index: Dict[str, str], lowered_index: Dict[str, str]) -> Dict | None:
-    source_raw = str(
-        raw.get("source")
-        or raw.get("source_entity_id")
-        or raw.get("startNode")
-        or raw.get("startNodeId")
-        or ""
-    ).strip()
-    target_raw = str(
-        raw.get("target")
-        or raw.get("target_entity_id")
-        or raw.get("endNode")
-        or raw.get("endNodeId")
-        or ""
-    ).strip()
+    source_raw = str(raw.get("startNode") or "").strip()
+    target_raw = str(raw.get("endNode") or "").strip()
     source = resolve_node_reference(source_raw, exact_index, lowered_index)
     target = resolve_node_reference(target_raw, exact_index, lowered_index)
     if not source or not target:
