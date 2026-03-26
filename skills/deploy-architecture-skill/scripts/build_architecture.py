@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a portable HTML dashboard from MCP JSON and a natural-language prompt."""
+"""Build a portable HTML deployment architecture view from MCP JSON."""
 
 from __future__ import annotations
 
@@ -23,10 +23,10 @@ INVALID_PROJECT_VALUES = {
     "cirelation",
 }
 SKILL_PROMPT_MARKERS = (
-    "$ops-dashboard-skill",
+    "$deploy-architecture-skill",
     "server=ges_mcp_server",
     "tool=query_ges",
-    "python3 scripts/run_ops_dashboard.py",
+    "python3 scripts/run_deploy_architecture.py",
     "mcp-input.json",
     "最终必须返回脚本输出中的准确 htmlpath 和 url",
 )
@@ -175,6 +175,40 @@ RELATION_COLOR_MAP = {
     "同一资源": "#9d6fff",
 }
 
+LAYER_COLOR_MAP = {
+    "接入层": "#00e5ff",
+    "入口层": "#00e5ff",
+    "边缘层": "#00e5ff",
+    "网关层": "#1a9fff",
+    "API层": "#4db8ff",
+    "应用层": "#00d68f",
+    "服务层": "#00d68f",
+    "业务层": "#00d68f",
+    "中间件层": "#9d6fff",
+    "缓存层": "#9d6fff",
+    "消息层": "#9d6fff",
+    "数据层": "#ffcc00",
+    "数据库层": "#ffcc00",
+    "存储层": "#80d0ff",
+    "基础设施层": "#7fa8cc",
+    "基础层": "#7fa8cc",
+    "计算层": "#7fa8cc",
+    "运维层": "#ff8c33",
+    "监控层": "#ff8c33",
+    "告警层": "#ff4040",
+    "未分层": "#64748b",
+}
+
+LAYER_HINT_GROUPS = [
+    ("接入层", ("接入", "入口", "访问", "边缘", "公网", "前端", "客户端", "域名", "用户", "access", "entry", "edge", "front")),
+    ("网关层", ("网关", "gateway", "ingress", "代理", "路由", "api gateway")),
+    ("应用层", ("应用", "服务", "业务", "service", "app", "logic")),
+    ("中间件层", ("中间件", "消息", "缓存", "mq", "queue", "middleware", "cache", "redis", "kafka")),
+    ("数据层", ("数据", "数据库", "存储", "db", "data", "storage", "mysql", "postgres", "oracle")),
+    ("基础设施层", ("基础设施", "基础", "计算", "容器", "主机", "infra", "infrastructure", "compute", "host", "cluster")),
+    ("运维层", ("运维", "监控", "可观测", "告警", "ops", "monitor", "alarm", "alert")),
+]
+
 FALLBACK_COLORS = [
     "#4db8ff",
     "#00d68f",
@@ -223,7 +257,7 @@ def ensure_skill_cwd() -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build dashboard from MCP JSON + natural language")
+    parser = argparse.ArgumentParser(description="Build deployment architecture from MCP JSON + natural language")
     parser.add_argument(
         "--input-json",
         default=str(DEFAULT_INPUT_JSON),
@@ -233,7 +267,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", default="./out/dashboard.html", help="Output HTML file path")
     parser.add_argument("--open-output", action="store_true", help="Open the generated HTML with the local default app")
     parser.add_argument("--template", default=str(DEFAULT_TEMPLATE), help="HTML template file path")
-    parser.add_argument("--title", default="Ops Dashboard Skill Demo", help="Dashboard title")
+    parser.add_argument("--title", default="Deploy Architecture Skill Demo", help="Dashboard title")
     return parser.parse_args()
 
 
@@ -254,7 +288,7 @@ def validate_runtime_prompt(prompt: object) -> str:
         raise RuntimeError(
             "脚本参数 --prompt 收到了 skill 的说明文本，而不是用户本次原话。"
             "请把用户最新请求原样传给 --prompt，例如："
-            '"展示 xxxxx 项目的 EC2 上下游关系"。'
+            '"把这个应用渲染成分层部署架构图"。'
         )
     return text
 
@@ -321,6 +355,23 @@ def normalize_project_value(value: object) -> str:
     if text.lower() in INVALID_PROJECT_VALUES:
         return ""
     return text
+
+
+def normalize_layer_value(value: object) -> str:
+    return str(value or "").strip()
+
+
+def layer_priority(label: object) -> int:
+    text = normalize_layer_value(label)
+    if not text:
+        return 999
+    lowered = text.lower()
+    if text == "未分层":
+        return 998
+    for idx, (_, hints) in enumerate(LAYER_HINT_GROUPS):
+        if any(hint in text or hint in lowered for hint in hints):
+            return idx
+    return 100
 
 
 def build_node_reference_index(nodes: List[Dict], *, include_alarm_nodes: bool = True) -> Tuple[Dict[str, str], Dict[str, str]]:
@@ -396,7 +447,6 @@ def normalize_node(raw: Dict, default_project: str = "UNKNOWN") -> Dict | None:
                 or raw.get("entityType")
                 or raw.get("resource_type")
                 or raw.get("resourceType")
-                or raw.get("type")
                 or "unknown"
             )
         )
@@ -405,11 +455,22 @@ def normalize_node(raw: Dict, default_project: str = "UNKNOWN") -> Dict | None:
     hrn = str(raw.get("hrn") or "").strip()
     resource_id = str(raw.get("resource_id") or raw.get("resourceId") or node_id).strip() or node_id
     lifecycle_state = str(raw.get("lifecycle_state") or raw.get("lifecycleState") or "").strip()
+    layer = normalize_layer_value(
+        raw.get("type")
+        or raw.get("layer")
+        or raw.get("layer_type")
+        or raw.get("layerType")
+        or raw.get("tier")
+    )
+    if not layer:
+        fallback_layer = key_to_entity_label(node_type)
+        layer = fallback_layer if fallback_layer and fallback_layer != "未知" else (resource_type_text or "未分层")
 
     return {
         "id": node_id,
         "label": display_name,
         "type": node_type,
+        "layer": layer or "未分层",
         "health": "",
         "healthText": "",
         "resourceType": resource_type_key,
@@ -719,6 +780,57 @@ def build_type_config(labels: List[str], known_order: List[str], color_map: Dict
     ]
 
 
+def build_layer_config(graph_data: Dict[str, List[Dict]]) -> List[Dict]:
+    node_layers = {
+        str(node.get("entity_id") or ""): normalize_layer_value(node.get("layer_type")) or "未分层"
+        for node in graph_data.get("nodes", [])
+        if node.get("entity_id")
+    }
+    all_layers = sorted(set(node_layers.values()), key=lambda label: (layer_priority(label), str(label)))
+    if not all_layers:
+        return [{"type": "未分层", "label": "未分层", "color": LAYER_COLOR_MAP["未分层"]}]
+
+    outgoing: Dict[str, set[str]] = {layer: set() for layer in all_layers}
+    indegree: Dict[str, int] = {layer: 0 for layer in all_layers}
+
+    for relation in graph_data.get("relations", []):
+        source_layer = node_layers.get(str(relation.get("source_entity_id") or ""), "")
+        target_layer = node_layers.get(str(relation.get("target_entity_id") or ""), "")
+        if not source_layer or not target_layer or source_layer == target_layer:
+            continue
+        if target_layer in outgoing[source_layer]:
+            continue
+        outgoing[source_layer].add(target_layer)
+        indegree[target_layer] += 1
+
+    ordered: List[str] = []
+    queue = sorted(
+        [layer for layer, degree in indegree.items() if degree == 0],
+        key=lambda label: (layer_priority(label), str(label)),
+    )
+    while queue:
+        current = queue.pop(0)
+        ordered.append(current)
+        for target in sorted(outgoing[current], key=lambda label: (layer_priority(label), str(label))):
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                queue.append(target)
+                queue.sort(key=lambda label: (layer_priority(label), str(label)))
+
+    for layer in all_layers:
+        if layer not in ordered:
+            ordered.append(layer)
+
+    return [
+        {
+            "type": layer,
+            "label": layer,
+            "color": pick_color(idx, LAYER_COLOR_MAP, layer),
+        }
+        for idx, layer in enumerate(ordered)
+    ]
+
+
 def is_alarm_node_record(node: Dict) -> bool:
     resource_type = str(
         node.get("resourceTypeRaw")
@@ -786,6 +898,7 @@ def to_graph_data(nodes: List[Dict], links: List[Dict]) -> Dict[str, List[Dict]]
                 "entity_id": node_id,
                 "entity_name": node.get("label", node_id),
                 "entity_type": key_to_entity_label(node.get("type", "unknown")),
+                "layer_type": node.get("layer") or key_to_entity_label(node.get("type", "unknown")) or "未分层",
                 "project_id": node.get("project", "UNKNOWN"),
                 "health_status": health_status,
                 "health_level": health_level,
@@ -862,6 +975,7 @@ def build_app_config(graph_data: Dict[str, List[Dict]]) -> Dict:
         "projects": build_project_config(projects),
         "entityTypes": entity_types,
         "relationTypes": relation_types,
+        "layerTypes": build_layer_config(graph_data),
         "layout": DEFAULT_LAYOUT,
         "healthStates": ["正常", "告警"],
     }
