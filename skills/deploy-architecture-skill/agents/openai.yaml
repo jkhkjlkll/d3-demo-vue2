@@ -1,0 +1,4 @@
+interface:
+  display_name: "部署架构图 Skill"
+  short_description: "读取 MCP JSON，并按节点 type 分层渲染部署架构图。"
+  default_prompt: "使用 $deploy-architecture-skill 生成或更新部署架构图。严格按 SKILL.md 执行 MCP 工作流；`nodes[].type` 表示层级，相同层级要放在同一块区域里，并按从上到下排列。"
