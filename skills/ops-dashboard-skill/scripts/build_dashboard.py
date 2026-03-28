@@ -405,11 +405,13 @@ def normalize_node(raw: Dict, default_project: str = "UNKNOWN") -> Dict | None:
     hrn = str(raw.get("hrn") or "").strip()
     resource_id = str(raw.get("resource_id") or raw.get("resourceId") or node_id).strip() or node_id
     lifecycle_state = str(raw.get("lifecycle_state") or raw.get("lifecycleState") or "").strip()
+    display_type = str(raw.get("type") or "").strip()
 
     return {
         "id": node_id,
         "label": display_name,
         "type": node_type,
+        "displayType": display_type,
         "health": "",
         "healthText": "",
         "resourceType": resource_type_key,
@@ -785,7 +787,7 @@ def to_graph_data(nodes: List[Dict], links: List[Dict]) -> Dict[str, List[Dict]]
             {
                 "entity_id": node_id,
                 "entity_name": node.get("label", node_id),
-                "type": key_to_entity_label(node.get("type", "unknown")),
+                "type": node.get("displayType") or key_to_entity_label(node.get("type", "unknown")),
                 "entity_type": key_to_entity_label(node.get("type", "unknown")),
                 "project_id": node.get("project", "UNKNOWN"),
                 "health_status": health_status,
