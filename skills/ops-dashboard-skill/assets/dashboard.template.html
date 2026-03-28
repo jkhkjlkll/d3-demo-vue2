@@ -2029,8 +2029,7 @@ function openEntityDrawer(aggNode){
     const hc = getHealthTone(n);
     row.innerHTML = `
       <div class="der-health ${hc}"></div>
-      <span class="der-name" title="${n.entity_name}">${n.entity_name}</span>
-      <span class="der-proj">${getProjectLabel(n, '')}</span>`;
+      <span class="der-name" title="${n.entity_name}">${n.entity_name}</span>`;
     row.onclick = () => {
       body.querySelectorAll('.drawer-entity-row').forEach(r=>r.classList.remove('active'));
       row.classList.add('active');
@@ -2229,6 +2228,37 @@ function applyFilters(){
 //      same topological depth, keeping the order stable across refreshes.
 // ─────────────────────────────────────────────────────────────────────────
 
+function buildAlarmAnchorMap(nodes, edges, typeIndex){
+  const nodeById = Object.fromEntries((nodes || []).map(node => [node.entity_id, node]));
+  const alarmAnchors = {};
+
+  (edges || []).forEach(edge => {
+    const src = nodeById[edge.source_entity_id];
+    const tgt = nodeById[edge.target_entity_id];
+    if(!src || !tgt) return;
+
+    const srcAlarm = isAlarmNode(src);
+    const tgtAlarm = isAlarmNode(tgt);
+    if(srcAlarm === tgtAlarm) return;
+
+    const alarmNode = srcAlarm ? src : tgt;
+    const peerNode = srcAlarm ? tgt : src;
+    if(!peerNode || isAlarmNode(peerNode)) return;
+
+    const peerType = String(peerNode.entity_type || '');
+    const peerScore = Number(typeIndex[peerType] || 0);
+    const current = alarmAnchors[alarmNode.entity_id];
+    if(!current || peerScore > current.score){
+      alarmAnchors[alarmNode.entity_id] = {
+        anchorId: peerNode.entity_id,
+        score: peerScore
+      };
+    }
+  });
+
+  return alarmAnchors;
+}
+
 function computeHierarchicalPositions(nodes, edges, W, H){
   const nodeCount = nodes.length;
   const edgeCount = (edges || []).length;
@@ -2268,6 +2298,7 @@ function computeHierarchicalPositions(nodes, edges, W, H){
   const typePlan = buildTypeColumnPlan(typeList, typeWeights);
   const orderedTypes = typePlan.orderedTypes.length ? typePlan.orderedTypes : typeList;
   const typeIndex = typePlan.typeIndex;
+  const alarmAnchors = buildAlarmAnchorMap(nodes, edges, typeIndex);
   const nodesByType = {};
   orderedTypes.forEach(type => { nodesByType[type] = []; });
   nodes.forEach(node => {
@@ -2277,27 +2308,138 @@ function computeHierarchicalPositions(nodes, edges, W, H){
   });
   orderNodesByTypeColumns(orderedTypes, nodesByType, edges, typeIndex);
 
-  const totalSpan = (orderedTypes.length - 1) * COL_SPAN_E;
+  const typeX = {};
+  let totalSpan = 0;
+  const interTypeSpans = [];
+  for(let idx = 1; idx < orderedTypes.length; idx += 1){
+    const prevType = orderedTypes[idx - 1];
+    const currType = orderedTypes[idx];
+    const nearAlarm = prevType === '告警' || currType === '告警';
+    const span = nearAlarm
+      ? Math.round(Math.max(NODE_W + 44, COL_SPAN_E * 0.72))
+      : COL_SPAN_E;
+    interTypeSpans.push(span);
+    totalSpan += span;
+  }
   const startX = orderedTypes.length === 1
     ? W / 2
     : Math.max(NODE_W / 2 + 24, W / 2 - totalSpan / 2);
+  if(orderedTypes.length){
+    typeX[orderedTypes[0]] = startX;
+    for(let idx = 1; idx < orderedTypes.length; idx += 1){
+      typeX[orderedTypes[idx]] = typeX[orderedTypes[idx - 1]] + interTypeSpans[idx - 1];
+    }
+  }
+
+  const defaultGap = ROW_GAP_E;
+  const minY = CANVAS_TOP + NODE_H / 2;
+  const columnHeights = {};
+  orderedTypes.forEach(type => {
+    const colNodes = nodesByType[type] || [];
+    columnHeights[type] = colNodes.reduce((sum, node, nodeIdx) => {
+      return sum + getNormalNodeSize(node).height + (nodeIdx < colNodes.length - 1 ? defaultGap : 0);
+    }, 0);
+  });
+  const maxColumnHeight = Math.max(0, ...orderedTypes.map(type => columnHeights[type] || 0));
+  const sharedTopY = Math.max(minY, H / 2 - maxColumnHeight / 2);
 
   orderedTypes.forEach((type, idx) => {
     const colNodes = nodesByType[type] || [];
     if(!colNodes.length) return;
-    const colX = startX + idx * COL_SPAN_E;
-    const totalColH = colNodes.reduce((sum, node, nodeIdx) => {
-      return sum + getNormalNodeSize(node).height + (nodeIdx < colNodes.length - 1 ? ROW_GAP_E : 0);
-    }, 0);
-    const minY = CANVAS_TOP + NODE_H / 2;
-    let currentY = Math.max(minY, H / 2 - totalColH / 2);
+    const colX = typeX[type] ?? (startX + idx * COL_SPAN_E);
+
+    if(type === '告警'){
+      const compactGap = Math.max(8, Math.round(defaultGap * 0.42));
+      const groupGap = Math.max(12, Math.round(defaultGap * 0.62));
+      const groupsByAnchor = new Map();
+
+      colNodes.forEach(node => {
+        const anchor = alarmAnchors[node.entity_id];
+        const anchorId = anchor && positions[anchor.anchorId] ? anchor.anchorId : '';
+        const groupKey = anchorId || `alarm::${node.entity_id}`;
+        if(!groupsByAnchor.has(groupKey)){
+          groupsByAnchor.set(groupKey, {
+            key: groupKey,
+            anchorId,
+            anchorY: anchorId ? positions[anchorId].y : null,
+            nodes: []
+          });
+        }
+        groupsByAnchor.get(groupKey).nodes.push(node);
+      });
+
+      const groups = Array.from(groupsByAnchor.values()).sort((aGroup, bGroup) => {
+        if(aGroup.anchorY !== null || bGroup.anchorY !== null){
+          if(aGroup.anchorY === null) return 1;
+          if(bGroup.anchorY === null) return -1;
+          if(aGroup.anchorY !== bGroup.anchorY) return aGroup.anchorY - bGroup.anchorY;
+        }
+        return String(aGroup.key || '').localeCompare(String(bGroup.key || ''), 'zh-CN');
+      });
+
+      groups.forEach(group => {
+        group.nodes.sort((aNode, bNode) => {
+          const nameDiff = String(aNode.entity_name || '').localeCompare(String(bNode.entity_name || ''), 'zh-CN');
+          if(nameDiff !== 0) return nameDiff;
+          return String(aNode.entity_id || '').localeCompare(String(bNode.entity_id || ''), 'zh-CN');
+        });
+        group.height = group.nodes.reduce((sum, node, nodeIdx) => {
+          return sum + getNormalNodeSize(node).height + (nodeIdx < group.nodes.length - 1 ? compactGap : 0);
+        }, 0);
+      });
+
+      let cursorY = sharedTopY;
+      groups.forEach(group => {
+        const preferredTop = group.anchorY === null ? cursorY : group.anchorY - group.height / 2;
+        group.top = Math.max(cursorY, preferredTop);
+        cursorY = group.top + group.height + groupGap;
+      });
+
+      const columnBottom = sharedTopY + maxColumnHeight;
+      let backCursor = columnBottom;
+      for(let groupIdx = groups.length - 1; groupIdx >= 0; groupIdx -= 1){
+        const group = groups[groupIdx];
+        const maxTop = backCursor - group.height;
+        if(group.top > maxTop){
+          group.top = maxTop;
+        }
+        backCursor = group.top - groupGap;
+      }
+
+      const usedTop = Math.min(...groups.map(group => group.top));
+      const usedBottom = Math.max(...groups.map(group => group.top + group.height));
+      const usedHeight = Math.max(0, usedBottom - usedTop);
+      if(usedHeight < maxColumnHeight){
+        let shift = sharedTopY + (maxColumnHeight - usedHeight) / 2 - usedTop;
+        if(usedBottom + shift > columnBottom){
+          shift -= (usedBottom + shift - columnBottom);
+        }
+        groups.forEach(group => { group.top += shift; });
+      }
+
+      groups.forEach(group => {
+        let currentY = group.top;
+        group.nodes.forEach((node, nodeIdx) => {
+          const size = getNormalNodeSize(node);
+          positions[node.entity_id] = {
+            x: colX,
+            y: currentY + size.height / 2
+          };
+          currentY += size.height + (nodeIdx < group.nodes.length - 1 ? compactGap : 0);
+        });
+      });
+      return;
+    }
+
+    const totalColH = columnHeights[type] || 0;
+    let currentY = sharedTopY + Math.max(0, (maxColumnHeight - totalColH) / 2);
     colNodes.forEach(node => {
       const size = getNormalNodeSize(node);
       positions[node.entity_id] = {
         x: colX,
         y: currentY + size.height / 2
       };
-      currentY += size.height + ROW_GAP_E;
+      currentY += size.height + defaultGap;
     });
   });
 
@@ -3023,12 +3165,10 @@ function buildSidebar(){
       row.className = 'entity-row';
       row.id = `sbrow-${n.entity_id}`;
       const hClass = `hi-${getHealthTone(n)}`;
-      const projLabel = getProjectLabel(n, '');
       const displayName = n.entity_name.length > 16 ? n.entity_name.slice(0,15)+'…' : n.entity_name;
       row.innerHTML = `
         <div class="health-indicator ${hClass}"></div>
-        <span class="entity-row-name">${displayName}</span>
-        ${projLabel ? `<span class="entity-row-proj">${projLabel}</span>` : ''}`;
+        <span class="entity-row-name">${displayName}</span>`;
       row.onclick = (ev) => {
         ev.stopPropagation();
         document.querySelectorAll('.entity-row.active').forEach(el=>el.classList.remove('active'));
@@ -3063,7 +3203,7 @@ function showNodeDetail(node){
   document.getElementById('dp-title').textContent = node.entity_name;
 
   const FIELD_LABELS = {
-    entity_id:'实体ID', entity_name:'实体名称', entity_type:'实体类型',
+    entity_id:'实体ID', entity_name:'实体名称', type:'类型', entity_type:'实体类型',
     project_id:'项目ID', health_status:'健康状态', alarm_count:'关联告警数', resource_type:'资源类型', created_at:'创建时间',
     lifecycle_state:'生命周期状态',
     resource_id:'资源ID', hrn:'HRN',
@@ -3080,12 +3220,12 @@ function showNodeDetail(node){
   };
 
   let html = '<div class="detail-section"><div class="detail-section-title">基本属性</div>';
-  const baseFields = ['entity_id','entity_name','resource_type','project_id'];
+  const baseFields = ['entity_id','entity_name','type','project_id'];
   if(!isAlarmNode(node)) baseFields.push('health_status', 'alarm_count');
   baseFields.push('created_at','updated_at');
   baseFields.forEach(k => {
     let v = k==='project_id' ? getProjectLabel(node, '-') : node[k];
-    if(k==='resource_type') v = getNodeDisplayType(node);
+    if(k==='type') v = getNodeDisplayType(node);
     if(v===undefined || v === '') return;
     const hClass = k==='health_status' ? getHealthClassByStatus(node) : '';
     html += `<div class="detail-row">
@@ -4570,10 +4710,12 @@ function getResourceHealthStats(nodes){
 
 function getNodeDisplayType(item){
   if(!item || typeof item !== 'object') return '-';
-  const resourceType = String(item.resource_type || '').trim();
-  if(resourceType) return resourceType;
+  const nodeType = String(item.type || '').trim();
+  if(nodeType) return nodeType;
   const entityType = String(item.entity_type || '').trim();
-  return entityType || '-';
+  if(entityType) return entityType;
+  const resourceType = String(item.resource_type || '').trim();
+  return resourceType || '-';
 }
 
 function getHealthLevel(item){

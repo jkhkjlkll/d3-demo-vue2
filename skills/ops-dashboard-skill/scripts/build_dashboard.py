@@ -785,6 +785,7 @@ def to_graph_data(nodes: List[Dict], links: List[Dict]) -> Dict[str, List[Dict]]
             {
                 "entity_id": node_id,
                 "entity_name": node.get("label", node_id),
+                "type": key_to_entity_label(node.get("type", "unknown")),
                 "entity_type": key_to_entity_label(node.get("type", "unknown")),
                 "project_id": node.get("project", "UNKNOWN"),
                 "health_status": health_status,
