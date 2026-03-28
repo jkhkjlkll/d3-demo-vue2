@@ -3134,15 +3134,29 @@ function buildSidebar(){
   const container = document.getElementById('sidebar-body');
   container.innerHTML = '';
 
-  const byType = {};
-  ETYPE_CONFIG.forEach(e => byType[e.type]=[]);
+  const groupMap = {};
   visNodes.forEach(n => {
-    if(byType[n.entity_type]) byType[n.entity_type].push(n);
+    const displayType = getNodeDisplayType(n);
+    if(!groupMap[displayType]){
+      groupMap[displayType] = {
+        label: displayType,
+        color: ETYPE_MAP[n.entity_type] || '#64748b',
+        sortType: n.entity_type || '未知',
+        nodes: []
+      };
+    }
+    groupMap[displayType].nodes.push(n);
+  });
+
+  const groups = Object.values(groupMap).sort((aGroup, bGroup) => {
+    const semanticOrder = compareTypeOrder(aGroup.sortType, bGroup.sortType);
+    if(semanticOrder !== 0) return semanticOrder;
+    return String(aGroup.label || '').localeCompare(String(bGroup.label || ''), 'zh-CN');
   });
 
   let total = 0;
-  ETYPE_CONFIG.forEach(ec => {
-    const nodes = byType[ec.type];
+  groups.forEach(group => {
+    const nodes = group.nodes;
     if(!nodes.length) return;
     total += nodes.length;
 
@@ -3152,8 +3166,8 @@ function buildSidebar(){
     const header = document.createElement('div');
     header.className = 'etype-header';
     header.innerHTML = `
-      <div class="etype-dot" style="background:${ec.color}"></div>
-      <span class="etype-name">${ec.type}</span>
+      <div class="etype-dot" style="background:${group.color}"></div>
+      <span class="etype-name">${group.label}</span>
       <span class="etype-num">${nodes.length}</span>
       <span class="etype-arrow">▶</span>`;
 
